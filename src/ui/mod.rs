@@ -15,9 +15,6 @@ pub struct SpeedText;
 pub struct RewardText;
 
 fn setup_ui(mut commands: Commands) {
-    // HUD camera
-    commands.spawn(Camera2d);
-
     // Speed display - bottom left
     commands.spawn((
         Text::new("Speed: 0 km/h"),

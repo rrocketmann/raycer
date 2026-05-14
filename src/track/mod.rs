@@ -7,6 +7,7 @@ pub struct TrackPlugin;
 impl Plugin for TrackPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_world)
+            .add_systems(Startup, fix_camera_order.after(spawn_world))
             .add_systems(FixedUpdate, move_car);
     }
 }
@@ -111,5 +112,11 @@ fn move_car(
         let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
         transform.translation += forward * car.speed * 0.016;
         transform.rotation = Quat::from_rotation_y(car.yaw);
+    }
+}
+
+fn fix_camera_order(mut query: Query<&mut Camera, With<CarCamera>>) {
+    for mut cam in query.iter_mut() {
+        cam.order = 0;
     }
 }
