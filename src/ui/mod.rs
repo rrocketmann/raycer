@@ -72,17 +72,20 @@ fn setup_ui(mut commands: Commands) {
 }
 
 fn update_hud(
-    mut speed_query: Query<&mut Text, With<SpeedText>>,
-    mut lap_query: Query<&mut Text, With<LapText>>,
-    mut reward_query: Query<&mut Text, With<RewardText>>,
+    mut texts: Query<(
+        Option<&SpeedText>,
+        Option<&LapText>,
+        Option<&RewardText>,
+        &mut Text,
+    )>,
 ) {
-    if let Ok(mut text) = speed_query.single_mut() {
-        text.0 = "Speed: 0 km/h".to_string();
-    }
-    if let Ok(mut text) = lap_query.single_mut() {
-        text.0 = "Lap: 0".to_string();
-    }
-    if let Ok(mut text) = reward_query.single_mut() {
-        text.0 = "Reward: 0.0".to_string();
+    for (speed, lap, reward, mut text) in texts.iter_mut() {
+        if speed.is_some() {
+            text.0 = "Speed: 0 km/h".to_string();
+        } else if lap.is_some() {
+            text.0 = "Lap: 0".to_string();
+        } else if reward.is_some() {
+            text.0 = "Reward: 0.0".to_string();
+        }
     }
 }
