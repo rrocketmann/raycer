@@ -4,7 +4,8 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_ui);
+        app.add_systems(Startup, setup_ui)
+            .add_systems(Startup, fix_ui_camera_order.after(setup_ui));
     }
 }
 
@@ -14,7 +15,13 @@ pub struct SpeedText;
 #[derive(Component)]
 pub struct RewardText;
 
+#[derive(Component)]
+pub struct HudCamera;
+
 fn setup_ui(mut commands: Commands) {
+    // HUD camera (order set to 1 in fix_ui_camera_order system)
+    commands.spawn((Camera2d, HudCamera));
+
     // Speed display - bottom left
     commands.spawn((
         Text::new("Speed: 0 km/h"),
@@ -64,4 +71,10 @@ fn setup_ui(mut commands: Commands) {
             ..default()
         },
     ));
+}
+
+fn fix_ui_camera_order(mut query: Query<&mut Camera, With<HudCamera>>) {
+    for mut cam in query.iter_mut() {
+        cam.order = 1;
+    }
 }
