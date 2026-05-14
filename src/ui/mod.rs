@@ -4,8 +4,7 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_ui)
-            .add_systems(Update, update_hud);
+        app.add_systems(Startup, setup_ui);
     }
 }
 
@@ -13,79 +12,59 @@ impl Plugin for UiPlugin {
 pub struct SpeedText;
 
 #[derive(Component)]
-pub struct LapText;
-
-#[derive(Component)]
 pub struct RewardText;
 
 fn setup_ui(mut commands: Commands) {
-    // Speed display
+    // HUD camera
+    commands.spawn(Camera2d);
+
+    // Speed display - bottom left
     commands.spawn((
         Text::new("Speed: 0 km/h"),
         TextFont {
-            font_size: 30.0,
+            font_size: 36.0,
             ..default()
         },
         TextColor(Color::WHITE),
         Node {
             position_type: PositionType::Absolute,
-            bottom: Val::Px(20.0),
-            left: Val::Px(20.0),
+            bottom: Val::Px(30.0),
+            left: Val::Px(30.0),
             ..default()
         },
         SpeedText,
     ));
 
-    // Lap counter
-    commands.spawn((
-        Text::new("Lap: 0"),
-        TextFont {
-            font_size: 30.0,
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(20.0),
-            left: Val::Px(20.0),
-            ..default()
-        },
-        LapText,
-    ));
-
-    // Reward display
+    // Reward display - top right
     commands.spawn((
         Text::new("Reward: 0.0"),
         TextFont {
-            font_size: 30.0,
+            font_size: 36.0,
             ..default()
         },
-        TextColor(Color::WHITE),
+        TextColor(Color::srgb(1.0, 0.9, 0.2)),
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(20.0),
-            right: Val::Px(20.0),
+            top: Val::Px(30.0),
+            right: Val::Px(30.0),
             ..default()
         },
         RewardText,
     ));
-}
 
-fn update_hud(
-    mut texts: Query<(
-        Option<&SpeedText>,
-        Option<&LapText>,
-        Option<&RewardText>,
-        &mut Text,
-    )>,
-) {
-    for (speed, lap, reward, mut text) in texts.iter_mut() {
-        if speed.is_some() {
-            text.0 = "Speed: 0 km/h".to_string();
-        } else if lap.is_some() {
-            text.0 = "Lap: 0".to_string();
-        } else if reward.is_some() {
-            text.0 = "Reward: 0.0".to_string();
-        }
-    }
+    // Controls hint
+    commands.spawn((
+        Text::new("WASD / Arrows: Drive  |  Space: Brake  |  R: Reset"),
+        TextFont {
+            font_size: 18.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.7, 0.7, 0.7)),
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(10.0),
+            left: Val::Px(50.0),
+            ..default()
+        },
+    ));
 }

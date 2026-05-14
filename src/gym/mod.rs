@@ -1,128 +1,51 @@
 use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
+
+use crate::car::{Car, PlayerCar};
+use crate::ui::{RewardText, SpeedText};
 
 pub struct GymPlugin;
 
 impl Plugin for GymPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GymEnv>()
-            .add_systems(Update, (step_env, reset_env));
+        app.insert_resource(GymState::default())
+            .add_systems(Update, (accumulate_reward, update_hud));
     }
 }
 
-#[derive(Resource)]
-pub struct GymEnv {
-    pub running: bool,
-    pub episode: usize,
-    pub step: usize,
-    pub max_steps: usize,
-    pub reward_config: RewardConfig,
-    pub last_reward: f32,
+#[derive(Resource, Default)]
+pub struct GymState {
     pub total_reward: f32,
+    pub current_speed: f32,
+    pub last_reward: f32,
+    pub episode_steps: u32,
 }
 
-impl Default for GymEnv {
-    fn default() -> Self {
-        Self {
-            running: false,
-            episode: 0,
-            step: 0,
-            max_steps: 1000,
-            reward_config: RewardConfig::default(),
-            last_reward: 0.0,
-            total_reward: 0.0,
-        }
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct RewardConfig {
-    pub progress_weight: f32,
-    pub speed_weight: f32,
-    pub collision_penalty: f32,
-    pub time_penalty: f32,
-    pub off_road_penalty: f32,
-    pub finish_bonus: f32,
-}
-
-impl Default for RewardConfig {
-    fn default() -> Self {
-        Self {
-            progress_weight: 1.0,
-            speed_weight: 0.1,
-            collision_penalty: -5.0,
-            time_penalty: -0.01,
-            off_road_penalty: -1.0,
-            finish_bonus: 100.0,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct Observation {
-    pub position: Vec3,
-    pub velocity: Vec3,
-    pub rotation: Quat,
-    pub angular_velocity: Vec3,
-    pub speed: f32,
-    pub track_progress: f32,
-}
-
-impl Observation {
-    pub fn to_vec(&self) -> Vec<f32> {
-        vec![
-            self.position.x,
-            self.position.y,
-            self.position.z,
-            self.velocity.x,
-            self.velocity.y,
-            self.velocity.z,
-            self.rotation.x,
-            self.rotation.y,
-            self.rotation.z,
-            self.rotation.w,
-            self.angular_velocity.x,
-            self.angular_velocity.y,
-            self.angular_velocity.z,
-            self.speed,
-            self.track_progress,
-        ]
-    }
-}
-
-#[derive(Clone)]
-pub struct Action {
-    pub throttle: f32,
-    pub steer: f32,
-    pub brake: f32,
-}
-
-pub fn step_env(
-    mut env: ResMut<GymEnv>,
-    // TODO: Add car and track queries
+fn accumulate_reward(
+    mut gym: ResMut<GymState>,
+    car_query: Query<&Car, With<PlayerCar>>,
 ) {
-    if !env.running {
+    let Some(car) = car_query.iter().next() else {
         return;
-    }
+    };
 
-    env.step += 1;
-    env.total_reward += env.last_reward;
-
-    if env.step >= env.max_steps {
-        env.running = false;
-        env.episode += 1;
-    }
+    gym.current_speed = car.speed;
+    gym.last_reward = car.speed.abs() * 0.01;
+    gym.total_reward += gym.last_reward;
+    gym.episode_steps += 1;
 }
 
-pub fn reset_env(
-    mut env: ResMut<GymEnv>,
-    keys: Res<ButtonInput<KeyCode>>,
+fn update_hud(
+    gym: Res<GymState>,
+    mut speed_query: Query<&mut Text, (With<SpeedText>, Without<RewardText>)>,
+    mut reward_query: Query<&mut Text, (With<RewardText>, Without<SpeedText>)>,
 ) {
-    if keys.just_pressed(KeyCode::KeyR) {
-        env.running = false;
-        env.episode += 1;
-        env.step = 0;
-        env.total_reward = 0.0;
-        env.last_reward = 0.0;
+    if gym.is_changed() {
+        if let Ok(mut text) = speed_query.single_mut() {
+            let speed_kmh = gym.current_speed * 3.6;
+            text.0 = format!("Speed: {:.0} km/h", speed_kmh);
+        }
+        if let Ok(mut text) = reward_query.single_mut() {
+            text.0 = format!("Reward: {:.1}", gym.total_reward);
+        }
     }
 }

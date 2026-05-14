@@ -1,22 +1,19 @@
+use bevy::prelude::*;
+
 mod car;
 mod gym;
-mod physics;
-mod telemetry;
 mod track;
 mod ui;
 
-use bevy::prelude::*;
-
 fn main() {
     App::new()
-        .add_plugins((
-            DefaultPlugins,
-            car::CarPlugin,
-            track::TrackPlugin,
-            physics::PhysicsPlugin,
-            gym::GymPlugin,
-            ui::UiPlugin,
-            telemetry::TelemetryPlugin,
-        ))
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "raycer".into(),
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins((car::CarPlugin, track::TrackPlugin, gym::GymPlugin, ui::UiPlugin))
         .run();
 }
