@@ -13,94 +13,103 @@ impl Plugin for TrackPlugin {
 }
 
 #[derive(Component)]
-pub struct CarRoof;
+pub struct TrackPiece;
 
 fn spawn_world(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Ground
+    let car = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
+    let road_straight = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/roadStraight.glb"));
+    let road_corner = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/roadCornerSmall.glb"));
+    let road_start = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/roadStart.glb"));
+
+    // Car - scaled up and positioned on the road
+    commands.spawn((
+        SceneRoot(car),
+        Transform::from_xyz(5.0, 0.5, 5.0),
+        Car { speed: 0.0, yaw: 0.0 },
+        PlayerCar,
+    ));
+
+    // Build a simple oval track
+    // Kenney road pieces are roughly 10 units long / 10 unit radius
+    let piece_size = 10.0;
+    let straights = 6;
+
+    // Start/finish line at the beginning
+    commands.spawn((
+        SceneRoot(road_start.clone()),
+        Transform::from_xyz(0.0, 0.0, 0.0),
+        TrackPiece,
+    ));
+
+    // Straight pieces going north (positive Z)
+    for i in 0..straights {
+        commands.spawn((
+            SceneRoot(road_straight.clone()),
+            Transform::from_xyz(0.0, 0.0, (i as f32 + 1.0) * piece_size),
+            TrackPiece,
+        ));
+    }
+
+    // Top curve (turn right)
+    let top_z = (straights as f32 + 1.0) * piece_size;
+    commands.spawn((
+        SceneRoot(road_corner.clone()),
+        Transform::from_xyz(0.0, 0.0, top_z),
+        TrackPiece,
+    ));
+
+    // Straight pieces going back (parallel, offset in X)
+    let offset_x = piece_size;
+    for i in 0..straights {
+        let z = top_z - (i as f32 + 1.0) * piece_size;
+        commands.spawn((
+            SceneRoot(road_straight.clone()),
+            Transform::from_xyz(offset_x, 0.0, z).with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+            TrackPiece,
+        ));
+    }
+
+    // Bottom curve (turn back to start)
+    commands.spawn((
+        SceneRoot(road_corner.clone()),
+        Transform::from_xyz(offset_x, 0.0, 0.0).with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
+        TrackPiece,
+    ));
+
+    // Ground plane
     commands.spawn((
         Mesh3d(meshes.add(Mesh::from(Plane3d::new(Vec3::Y, Vec2::splat(500.0))))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.25, 0.55, 0.25),
+            base_color: Color::srgb(0.22, 0.50, 0.22),
             ..default()
         })),
     ));
 
-    // Grid lines
-    for i in -250..=250i32 {
-        if i % 10 != 0 {
-            continue;
-        }
-        let thick = if i % 50 == 0 { 0.2 } else { 0.05 };
-        let col = if i % 50 == 0 {
-            Color::srgb(0.18, 0.4, 0.18)
-        } else {
-            Color::srgb(0.22, 0.48, 0.22)
-        };
-        commands.spawn((
-            Mesh3d(meshes.add(Mesh::from(Cuboid::new(500.0, thick, thick)))),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: col, ..default() })),
-            Transform::from_xyz(0.0, 0.01, i as f32),
-        ));
-        commands.spawn((
-            Mesh3d(meshes.add(Mesh::from(Cuboid::new(thick, thick, 500.0)))),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: col, ..default() })),
-            Transform::from_xyz(i as f32, 0.01, 0.0),
-        ));
-    }
-
-    // Car body with child roof
-    let car_mesh = meshes.add(Mesh::from(Cuboid::new(1.8, 0.8, 3.6)));
-    let car_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.9, 0.15, 0.15),
-        ..default()
-    });
-    let roof_mesh = meshes.add(Mesh::from(Cuboid::new(1.4, 0.5, 1.5)));
-    let roof_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.6, 0.1, 0.1),
-        ..default()
-    });
-
-    commands.spawn((
-        Mesh3d(car_mesh),
-        MeshMaterial3d(car_mat),
-        Transform::from_xyz(0.0, 0.5, 0.0),
-        Car { speed: 0.0, yaw: 0.0 },
-        PlayerCar,
-        Children::default(),
-    )).with_children(|parent| {
-        parent.spawn((
-            Mesh3d(roof_mesh),
-            MeshMaterial3d(roof_mat),
-            Transform::from_xyz(0.0, 0.65, -0.3),
-            CarRoof,
-        ));
-    });
-
-    // Directional light (sun)
+    // Light
     commands.spawn((
         DirectionalLight {
-            illuminance: 50000.0,
+            illuminance: 80000.0,
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.6, 0.4, 0.0)),
+        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.5, 0.5, 0.0)),
     ));
 
-    // Ambient light
     commands.spawn(AmbientLight {
-        color: Color::srgb(0.8, 0.85, 1.0),
-        brightness: 500.0,
+        color: Color::srgb(0.9, 0.92, 1.0),
+        brightness: 800.0,
         affects_lightmapped_meshes: true,
     });
 
-    // 3D camera (order 1 = renders after 2D UI camera at order 0)
+    // Camera
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 5.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(5.0, 10.0, -15.0).looking_at(Vec3::new(5.0, 0.0, 5.0), Vec3::Y),
         CarCamera,
     ));
 }
