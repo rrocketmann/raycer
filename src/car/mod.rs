@@ -60,7 +60,7 @@ impl Default for CarParams {
     }
 }
 
-pub const MAP_HALF_SIZE: f32 = 230.0;
+pub const MAP_HALF_SIZE: f32 = 60.0;
 
 #[derive(Resource)]
 pub struct Telemetry {

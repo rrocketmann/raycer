@@ -28,7 +28,7 @@ fn spawn_world(
         CarVisual,
     ));
 
-    let ground_size = 500.0;
+    let ground_size = 150.0;
     commands.spawn((
         Mesh3d(meshes.add(Mesh::from(Plane3d::new(Vec3::Y, Vec2::splat(ground_size))))),
         MeshMaterial3d(materials.add(StandardMaterial {
