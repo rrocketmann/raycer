@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 
 mod car;
-mod gym;
 mod track;
 mod ui;
 
@@ -14,6 +13,7 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins((car::CarPlugin, track::TrackPlugin, gym::GymPlugin, ui::UiPlugin))
+        .add_plugins(bevy_egui::EguiPlugin::default())
+        .add_plugins((car::CarPlugin, track::TrackPlugin, ui::UiPlugin))
         .run();
 }

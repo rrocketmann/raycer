@@ -1,19 +1,17 @@
 use bevy::prelude::*;
 
-use crate::car::{Car, CarCamera, PlayerCar};
+use crate::car::{Car, CarCamera, CarVisual, PlayerCar, MAP_HALF_SIZE};
 
 pub struct TrackPlugin;
 
 impl Plugin for TrackPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_world)
-            .add_systems(Startup, fix_camera_order.after(spawn_world))
-            .add_systems(FixedUpdate, move_car);
+        app.add_systems(Startup, spawn_world);
     }
 }
 
 #[derive(Component)]
-pub struct TrackPiece;
+pub struct GroundPlane;
 
 fn spawn_world(
     mut commands: Commands,
@@ -21,111 +19,76 @@ fn spawn_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let car = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
-    let road_straight = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/roadStraight.glb"));
-    let road_corner = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/roadCornerSmall.glb"));
-    let road_start = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/roadStart.glb"));
-
-    // Car - scaled up and positioned on the road
+    let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
     commands.spawn((
-        SceneRoot(car),
-        Transform::from_xyz(5.0, 0.5, 5.0),
+        SceneRoot(car_scene),
+        Transform::from_xyz(0.0, 0.0, 0.0),
         Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
+        CarVisual,
     ));
 
-    // Build a simple oval track
-    // Kenney road pieces are roughly 10 units long / 10 unit radius
-    let piece_size = 10.0;
-    let straights = 6;
-
-    // Start/finish line at the beginning
+    let ground_size = 500.0;
     commands.spawn((
-        SceneRoot(road_start.clone()),
-        Transform::from_xyz(0.0, 0.0, 0.0),
-        TrackPiece,
-    ));
-
-    // Straight pieces going north (positive Z)
-    for i in 0..straights {
-        commands.spawn((
-            SceneRoot(road_straight.clone()),
-            Transform::from_xyz(0.0, 0.0, (i as f32 + 1.0) * piece_size),
-            TrackPiece,
-        ));
-    }
-
-    // Top curve (turn right)
-    let top_z = (straights as f32 + 1.0) * piece_size;
-    commands.spawn((
-        SceneRoot(road_corner.clone()),
-        Transform::from_xyz(0.0, 0.0, top_z),
-        TrackPiece,
-    ));
-
-    // Straight pieces going back (parallel, offset in X)
-    let offset_x = piece_size;
-    for i in 0..straights {
-        let z = top_z - (i as f32 + 1.0) * piece_size;
-        commands.spawn((
-            SceneRoot(road_straight.clone()),
-            Transform::from_xyz(offset_x, 0.0, z).with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
-            TrackPiece,
-        ));
-    }
-
-    // Bottom curve (turn back to start)
-    commands.spawn((
-        SceneRoot(road_corner.clone()),
-        Transform::from_xyz(offset_x, 0.0, 0.0).with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
-        TrackPiece,
-    ));
-
-    // Ground plane
-    commands.spawn((
-        Mesh3d(meshes.add(Mesh::from(Plane3d::new(Vec3::Y, Vec2::splat(500.0))))),
+        Mesh3d(meshes.add(Mesh::from(Plane3d::new(Vec3::Y, Vec2::splat(ground_size))))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.22, 0.50, 0.22),
+            base_color: Color::srgb(0.76, 0.70, 0.50),
             ..default()
         })),
+        GroundPlane,
     ));
 
-    // Light
     commands.spawn((
         DirectionalLight {
-            illuminance: 80000.0,
+            illuminance: 16000.0,
             shadows_enabled: true,
+            shadow_depth_bias: 0.02,
+            shadow_normal_bias: 0.6,
             ..default()
         },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.5, 0.5, 0.0)),
+        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -1.2, 0.4, 0.0)),
     ));
 
-    commands.spawn(AmbientLight {
-        color: Color::srgb(0.9, 0.92, 1.0),
-        brightness: 800.0,
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 8.0, -15.0).looking_at(Vec3::ZERO, Vec3::Y),
+        CarCamera,
+    ));
+
+    commands.insert_resource(AmbientLight {
+        color: Color::srgb(0.95, 0.92, 0.85),
+        brightness: 120.0,
         affects_lightmapped_meshes: true,
     });
 
-    // Camera
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(5.0, 10.0, -15.0).looking_at(Vec3::new(5.0, 0.0, 5.0), Vec3::Y),
-        CarCamera,
-    ));
+    spawn_barrier(&mut commands, &mut meshes, &mut materials);
 }
 
-fn move_car(
-    mut car_query: Query<(&Car, &mut Transform), With<PlayerCar>>,
+fn spawn_barrier(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
 ) {
-    for (car, mut transform) in car_query.iter_mut() {
-        let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
-        transform.translation += forward * car.speed * 0.016;
-        transform.rotation = Quat::from_rotation_y(car.yaw);
-    }
-}
+    let barrier_radius = MAP_HALF_SIZE + 2.0;
+    let wall_height = 2.0;
 
-fn fix_camera_order(mut query: Query<&mut Camera, With<CarCamera>>) {
-    for mut cam in query.iter_mut() {
-        cam.order = 0;
-    }
+    let wall_mat = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.35, 0.33, 0.30),
+        cull_mode: None,
+        ..default()
+    });
+
+    let cylinder = meshes.add(
+        Cylinder::new(barrier_radius, wall_height)
+            .mesh()
+            .resolution(512)
+            .without_caps()
+            .build(),
+    );
+
+    commands.spawn((
+        Mesh3d(cylinder),
+        MeshMaterial3d(wall_mat),
+        Transform::from_xyz(0.0, wall_height * 0.5, 0.0),
+    ));
 }
