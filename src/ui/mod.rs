@@ -178,23 +178,63 @@ fn draw_graph(ui: &mut egui::Ui, data: &[f32], min_val: f32, max_val: f32, color
         );
     }
 
-    let points: Vec<egui::Pos2> = data
+    let points = smooth_path(data, rect, min_val, range, 0.3);
+
+    if points.len() >= 2 {
+        let stroke = egui::Stroke::new(1.5, color);
+        painter.add(egui::Shape::Path(egui::epaint::PathShape {
+            points,
+            closed: false,
+            fill: egui::Color32::TRANSPARENT,
+            stroke: stroke.into(),
+        }));
+    }
+
+    let _ = response;
+}
+
+fn smooth_path(data: &[f32], rect: egui::Rect, min_val: f32, range: f32, _tension: f32) -> Vec<egui::Pos2> {
+    if data.len() < 2 {
+        return Vec::new();
+    }
+    let raw: Vec<egui::Pos2> = data
         .iter()
         .enumerate()
         .map(|(i, &v)| {
-            let x = rect.min.x + (i as f32 / (data.len() - 1).max(1) as f32) * rect.width();
+            let x = rect.min.x + (i as f32 / (data.len() - 1) as f32) * rect.width();
             let y = rect.max.y - ((v - min_val) / range) * rect.height();
             egui::pos2(x, y.clamp(rect.min.y, rect.max.y))
         })
         .collect();
 
-    let stroke = egui::Stroke::new(1.5, color);
-    painter.add(egui::Shape::Path(egui::epaint::PathShape {
-        points,
-        closed: false,
-        fill: egui::Color32::TRANSPARENT,
-        stroke: stroke.into(),
-    }));
+    catmull_rom(&raw, 4)
+}
 
-    let _ = response;
+fn catmull_rom(points: &[egui::Pos2], subdivisions: usize) -> Vec<egui::Pos2> {
+    if points.len() < 2 {
+        return points.to_vec();
+    }
+    let mut result = Vec::with_capacity(points.len() * subdivisions);
+    for i in 0..points.len() - 1 {
+        let p0 = if i == 0 { points[0] } else { points[i - 1] };
+        let p1 = points[i];
+        let p2 = points[i + 1];
+        let p3 = if i + 2 < points.len() { points[i + 2] } else { p2 };
+        for j in 0..subdivisions {
+            let t = j as f32 / subdivisions as f32;
+            let t2 = t * t;
+            let t3 = t2 * t;
+            let x = 0.5 * ((2.0 * p1.x)
+                + (-p0.x + p2.x) * t
+                + (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2
+                + (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3);
+            let y = 0.5 * ((2.0 * p1.y)
+                + (-p0.y + p2.y) * t
+                + (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2
+                + (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3);
+            result.push(egui::pos2(x, y));
+        }
+    }
+    result.push(*points.last().unwrap());
+    result
 }
