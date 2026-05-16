@@ -1,8 +1,9 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::car::{Car, PlayerCar, MAP_HALF_SIZE};
+use crate::car::{Car, PlayerCar};
 use crate::car::Telemetry;
+use crate::track::MinimapImage;
 
 pub struct UiPlugin;
 
@@ -14,10 +15,12 @@ impl Plugin for UiPlugin {
 
 fn egui_panel(
     mut contexts: EguiContexts,
+    minimap: Res<MinimapImage>,
     telemetry: Res<Telemetry>,
     car_query: Query<(&Car, &Transform), With<PlayerCar>>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
+    let minimap_texture_id = contexts.add_image(bevy_egui::EguiTextureHandle::Strong(minimap.0.clone()));
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let w = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
     let a = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
@@ -25,8 +28,6 @@ fn egui_panel(
     let d = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
     let sp = keys.pressed(KeyCode::Space);
 
-    let car_x = car_query.iter().next().map(|(_, t)| t.translation.x).unwrap_or(0.0);
-    let car_z = car_query.iter().next().map(|(_, t)| t.translation.z).unwrap_or(0.0);
     let car_yaw = car_query.iter().next().map(|(c, _)| c.yaw).unwrap_or(0.0);
 
     egui::SidePanel::right("telemetry")
@@ -39,7 +40,9 @@ fn egui_panel(
             let speed_kmh = telemetry.speed_history.last().copied().unwrap_or(0.0) * 3.6;
             ui.label(format!("{:.0} km/h", speed_kmh));
             ui.add_space(2.0);
-            draw_graph(ui, &telemetry.speed_history, 0.0, 260.0, egui::Color32::from_rgb(100, 200, 255));
+            let (speed_min, speed_max) = telemetry.speed_history.iter()
+                .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+            draw_graph(ui, &telemetry.speed_history, speed_min, speed_max, egui::Color32::from_rgb(100, 200, 255));
 
             ui.separator();
             ui.heading("Steering");
@@ -54,7 +57,9 @@ fn egui_panel(
             };
             ui.label(format!("{} ({:.1}\u{00b0})", steer_label, angle_deg));
             ui.add_space(2.0);
-            draw_graph(ui, &telemetry.steer_history, -0.8, 0.8, egui::Color32::from_rgb(255, 180, 60));
+            let (steer_min, steer_max) = telemetry.steer_history.iter()
+                .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+            draw_graph(ui, &telemetry.steer_history, steer_min, steer_max, egui::Color32::from_rgb(255, 180, 60));
 
             ui.separator();
             ui.heading("Heading");
@@ -64,7 +69,8 @@ fn egui_panel(
             ui.separator();
             ui.heading("Map");
             ui.add_space(2.0);
-            draw_minimap(ui, car_x, car_z, car_yaw);
+            let minimap_size = 150.0;
+            ui.image(egui::load::SizedTexture::new(minimap_texture_id, egui::vec2(minimap_size, minimap_size)));
 
             ui.separator();
             ui.add_space(8.0);
@@ -126,39 +132,6 @@ fn draw_compass(ui: &mut egui::Ui, yaw: f32) {
     painter.line_segment([tip, right], egui::Stroke::new(2.0, egui::Color32::from_rgb(120, 255, 120)));
 }
 
-fn draw_minimap(ui: &mut egui::Ui, car_x: f32, car_z: f32, car_yaw: f32) {
-    let size = 150.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
-    let painter = ui.painter();
-
-    painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(45, 42, 35));
-    painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 75, 65)), egui::StrokeKind::Outside);
-
-    let scale = size / (MAP_HALF_SIZE * 2.2);
-    let cx = rect.center().x;
-    let cy = rect.center().y;
-
-    // Arena circle offset from car position (car is always at center)
-    let arena_cx = cx - car_x * scale;
-    let arena_cy = cy + car_z * scale;
-    let border_r = MAP_HALF_SIZE * scale;
-    painter.circle_stroke(egui::pos2(arena_cx, arena_cy), border_r, egui::Stroke::new(1.5, egui::Color32::from_rgb(90, 80, 65)));
-
-    // Car always at center, pointing up (yaw rotated so forward = up)
-    let arrow_len = 10.0;
-    let half_w = 4.0;
-    let cos_y = car_yaw.cos();
-    let sin_y = car_yaw.sin();
-    let tip = egui::pos2(cx + arrow_len * cos_y, cy - arrow_len * sin_y);
-    let bl = egui::pos2(cx - arrow_len * 0.5 * cos_y + half_w * sin_y, cy + arrow_len * 0.5 * sin_y + half_w * cos_y);
-    let br = egui::pos2(cx - arrow_len * 0.5 * cos_y - half_w * sin_y, cy + arrow_len * 0.5 * sin_y - half_w * cos_y);
-    painter.line_segment([tip, bl], egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 60)));
-    painter.line_segment([tip, br], egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 60)));
-    painter.line_segment([bl, br], egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 200, 60)));
-
-    let _rect = rect;
-}
-
 fn draw_graph(ui: &mut egui::Ui, data: &[f32], min_val: f32, max_val: f32, color: egui::Color32) {
     let (rect, response) = ui.allocate_exact_size(
         egui::Vec2::new(ui.available_width(), 60.0),
@@ -190,8 +163,10 @@ fn draw_graph(ui: &mut egui::Ui, data: &[f32], min_val: f32, max_val: f32, color
         })
         .collect();
 
-    if points.len() >= 2 {
-        painter.line(points, egui::Stroke::new(1.5, color));
+    if !points.is_empty() {
+        for p in &points {
+            painter.circle_filled(*p, 1.5, color);
+        }
     }
 
     let _ = response;
