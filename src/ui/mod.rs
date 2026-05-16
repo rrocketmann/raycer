@@ -1,29 +1,22 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
+use crate::car::{Car, PlayerCar, MAP_HALF_SIZE};
 use crate::car::Telemetry;
 
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ShowGraphs>()
-            .add_systems(EguiPrimaryContextPass, egui_panel);
+        app.add_systems(EguiPrimaryContextPass, egui_panel);
     }
-}
-
-#[derive(Resource, Default)]
-struct ShowGraphs {
-    speed: bool,
-    steering: bool,
-    heading: bool,
 }
 
 fn egui_panel(
     mut contexts: EguiContexts,
     telemetry: Res<Telemetry>,
+    car_query: Query<(&Car, &Transform), With<PlayerCar>>,
     keys: Res<ButtonInput<KeyCode>>,
-    mut show: ResMut<ShowGraphs>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let w = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
@@ -32,38 +25,24 @@ fn egui_panel(
     let d = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
     let sp = keys.pressed(KeyCode::Space);
 
+    let car_x = car_query.iter().next().map(|(_, t)| t.translation.x).unwrap_or(0.0);
+    let car_z = car_query.iter().next().map(|(_, t)| t.translation.z).unwrap_or(0.0);
+    let car_yaw = car_query.iter().next().map(|(c, _)| c.yaw).unwrap_or(0.0);
+
     egui::SidePanel::right("telemetry")
         .min_width(220.0)
         .show(ctx, |ui| {
             ui.add_space(8.0);
 
-            ui.horizontal(|ui| {
-                ui.heading("Speed");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let label = if show.speed { " \u{25BE}" } else { " \u{25B8}" };
-                    if ui.small_button(label).clicked() {
-                        show.speed = !show.speed;
-                    }
-                });
-            });
+            ui.heading("Speed");
             ui.add_space(2.0);
             let speed_kmh = telemetry.speed_history.last().copied().unwrap_or(0.0) * 3.6;
             ui.label(format!("{:.0} km/h", speed_kmh));
-            if show.speed {
-                ui.add_space(2.0);
-                draw_graph(ui, &telemetry.speed_history, 0.0, 260.0, egui::Color32::from_rgb(100, 200, 255));
-            }
+            ui.add_space(2.0);
+            draw_graph(ui, &telemetry.speed_history, 0.0, 260.0, egui::Color32::from_rgb(100, 200, 255));
 
             ui.separator();
-            ui.horizontal(|ui| {
-                ui.heading("Steering");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let label = if show.steering { " \u{25BE}" } else { " \u{25B8}" };
-                    if ui.small_button(label).clicked() {
-                        show.steering = !show.steering;
-                    }
-                });
-            });
+            ui.heading("Steering");
             ui.add_space(2.0);
             let angle_deg = telemetry.steer_history.last().copied().unwrap_or(0.0).to_degrees();
             let steer_label = if angle_deg.abs() < 2.0 {
@@ -74,28 +53,18 @@ fn egui_panel(
                 "Right"
             };
             ui.label(format!("{} ({:.1}\u{00b0})", steer_label, angle_deg));
-            if show.steering {
-                ui.add_space(2.0);
-                draw_graph(ui, &telemetry.steer_history, -0.8, 0.8, egui::Color32::from_rgb(255, 180, 60));
-            }
+            ui.add_space(2.0);
+            draw_graph(ui, &telemetry.steer_history, -0.8, 0.8, egui::Color32::from_rgb(255, 180, 60));
 
             ui.separator();
-            ui.horizontal(|ui| {
-                ui.heading("Heading");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let label = if show.heading { " \u{25BE}" } else { " \u{25B8}" };
-                    if ui.small_button(label).clicked() {
-                        show.heading = !show.heading;
-                    }
-                });
-            });
+            ui.heading("Heading");
             ui.add_space(2.0);
-            let yaw = telemetry.yaw_rate_history.last().copied().unwrap_or(0.0);
-            draw_compass(ui, yaw);
-            if show.heading {
-                ui.add_space(2.0);
-                draw_graph(ui, &telemetry.yaw_rate_history, -3.14, 3.14, egui::Color32::from_rgb(120, 255, 120));
-            }
+            draw_compass(ui, car_yaw);
+
+            ui.separator();
+            ui.heading("Map");
+            ui.add_space(2.0);
+            draw_minimap(ui, car_x, car_z, car_yaw);
 
             ui.separator();
             ui.add_space(8.0);
@@ -124,8 +93,8 @@ fn draw_key(ui: &mut egui::Ui, label: &str, pressed: bool) {
     };
     let (rect, _) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, 4.0, bg);
-    painter.rect_stroke(rect, 4.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80)), egui::StrokeKind::Outside);
+    painter.rect_filled(rect, 0.0, bg);
+    painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80)), egui::StrokeKind::Outside);
     painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(14.0), fg);
 }
 
@@ -157,6 +126,34 @@ fn draw_compass(ui: &mut egui::Ui, yaw: f32) {
     painter.line_segment([tip, right], egui::Stroke::new(2.0, egui::Color32::from_rgb(120, 255, 120)));
 }
 
+fn draw_minimap(ui: &mut egui::Ui, car_x: f32, car_z: f32, car_yaw: f32) {
+    let size = 150.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    let painter = ui.painter();
+
+    painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(45, 42, 35));
+    painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 75, 65)), egui::StrokeKind::Outside);
+
+    let scale = size / (MAP_HALF_SIZE * 2.2);
+    let cx = rect.center().x;
+    let cy = rect.center().y;
+    let border_r = MAP_HALF_SIZE * scale;
+    painter.circle_stroke(egui::pos2(cx, cy), border_r, egui::Stroke::new(1.5, egui::Color32::from_rgb(90, 80, 65)));
+
+    let car_sx = cx + car_x * scale;
+    let car_sy = cy - car_z * scale;
+
+    let arrow_len = 8.0;
+    let tip = egui::pos2(car_sx + arrow_len * car_yaw.cos(), car_sy - arrow_len * car_yaw.sin());
+    let back_l = egui::pos2(car_sx - arrow_len * 0.5 * (car_yaw - 0.4).cos(), car_sy + arrow_len * 0.5 * (car_yaw - 0.4).sin());
+    let back_r = egui::pos2(car_sx - arrow_len * 0.5 * (car_yaw + 0.4).cos(), car_sy + arrow_len * 0.5 * (car_yaw + 0.4).sin());
+    painter.line_segment([tip, back_l], egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 60)));
+    painter.line_segment([tip, back_r], egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 60)));
+    painter.line_segment([back_l, back_r], egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 200, 60)));
+
+    let _rect = rect;
+}
+
 fn draw_graph(ui: &mut egui::Ui, data: &[f32], min_val: f32, max_val: f32, color: egui::Color32) {
     let (rect, response) = ui.allocate_exact_size(
         egui::Vec2::new(ui.available_width(), 60.0),
@@ -168,7 +165,7 @@ fn draw_graph(ui: &mut egui::Ui, data: &[f32], min_val: f32, max_val: f32, color
     let painter = ui.painter();
     let range = max_val - min_val;
 
-    painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(30, 30, 30));
+    painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(30, 30, 30));
 
     let zero_y = rect.max.y - ((0.0 - min_val) / range) * rect.height();
     if zero_y > rect.min.y && zero_y < rect.max.y {
@@ -178,7 +175,7 @@ fn draw_graph(ui: &mut egui::Ui, data: &[f32], min_val: f32, max_val: f32, color
         );
     }
 
-    let points = smooth_path(data, rect, min_val, range, 0.3);
+    let points = smooth_path(data, rect, min_val, range);
 
     if points.len() >= 2 {
         let stroke = egui::Stroke::new(1.5, color);
@@ -193,7 +190,7 @@ fn draw_graph(ui: &mut egui::Ui, data: &[f32], min_val: f32, max_val: f32, color
     let _ = response;
 }
 
-fn smooth_path(data: &[f32], rect: egui::Rect, min_val: f32, range: f32, _tension: f32) -> Vec<egui::Pos2> {
+fn smooth_path(data: &[f32], rect: egui::Rect, min_val: f32, range: f32) -> Vec<egui::Pos2> {
     if data.len() < 2 {
         return Vec::new();
     }
