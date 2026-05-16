@@ -137,19 +137,24 @@ fn draw_minimap(ui: &mut egui::Ui, car_x: f32, car_z: f32, car_yaw: f32) {
     let scale = size / (MAP_HALF_SIZE * 2.2);
     let cx = rect.center().x;
     let cy = rect.center().y;
+
+    // Arena circle offset from car position (car is always at center)
+    let arena_cx = cx - car_x * scale;
+    let arena_cy = cy + car_z * scale;
     let border_r = MAP_HALF_SIZE * scale;
-    painter.circle_stroke(egui::pos2(cx, cy), border_r, egui::Stroke::new(1.5, egui::Color32::from_rgb(90, 80, 65)));
+    painter.circle_stroke(egui::pos2(arena_cx, arena_cy), border_r, egui::Stroke::new(1.5, egui::Color32::from_rgb(90, 80, 65)));
 
-    let car_sx = cx + car_x * scale;
-    let car_sy = cy - car_z * scale;
-
-    let arrow_len = 8.0;
-    let tip = egui::pos2(car_sx + arrow_len * car_yaw.cos(), car_sy - arrow_len * car_yaw.sin());
-    let back_l = egui::pos2(car_sx - arrow_len * 0.5 * (car_yaw - 0.4).cos(), car_sy + arrow_len * 0.5 * (car_yaw - 0.4).sin());
-    let back_r = egui::pos2(car_sx - arrow_len * 0.5 * (car_yaw + 0.4).cos(), car_sy + arrow_len * 0.5 * (car_yaw + 0.4).sin());
-    painter.line_segment([tip, back_l], egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 60)));
-    painter.line_segment([tip, back_r], egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 60)));
-    painter.line_segment([back_l, back_r], egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 200, 60)));
+    // Car always at center, pointing up (yaw rotated so forward = up)
+    let arrow_len = 10.0;
+    let half_w = 4.0;
+    let cos_y = car_yaw.cos();
+    let sin_y = car_yaw.sin();
+    let tip = egui::pos2(cx + arrow_len * cos_y, cy - arrow_len * sin_y);
+    let bl = egui::pos2(cx - arrow_len * 0.5 * cos_y + half_w * sin_y, cy + arrow_len * 0.5 * sin_y + half_w * cos_y);
+    let br = egui::pos2(cx - arrow_len * 0.5 * cos_y - half_w * sin_y, cy + arrow_len * 0.5 * sin_y - half_w * cos_y);
+    painter.line_segment([tip, bl], egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 60)));
+    painter.line_segment([tip, br], egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 60)));
+    painter.line_segment([bl, br], egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 200, 60)));
 
     let _rect = rect;
 }
