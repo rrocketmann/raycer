@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::track::MinimapCamera;
+
 pub struct CarPlugin;
 
 impl Plugin for CarPlugin {
@@ -8,7 +10,7 @@ impl Plugin for CarPlugin {
             .init_resource::<Telemetry>()
             .init_resource::<WheelState>()
             .add_systems(FixedUpdate, car_movement)
-            .add_systems(Update, (camera_follow, update_car_visuals, label_wheels, animate_wheels, record_telemetry));
+            .add_systems(Update, (camera_follow, update_car_visuals, label_wheels, animate_wheels, record_telemetry, update_minimap_camera));
     }
 }
 
@@ -162,7 +164,7 @@ fn car_movement(
 
 fn camera_follow(
     car_query: Query<(&Car, &Transform), With<PlayerCar>>,
-    mut cam_query: Query<&mut Transform, (With<CarCamera>, Without<Car>)>,
+    mut cam_query: Query<&mut Transform, (With<CarCamera>, Without<MinimapCamera>, Without<PlayerCar>)>,
 ) {
     let Some((car, car_transform)) = car_query.iter().next() else {
         return;
@@ -278,4 +280,17 @@ fn record_telemetry(
     };
     let yaw_rate = car.yaw;
     telemetry.push(car.speed, wheel_state.current_angle, yaw_rate);
+}
+
+fn update_minimap_camera(
+    car_query: Query<(&Car, &Transform), With<PlayerCar>>,
+    mut minimap_query: Query<&mut Transform, (With<MinimapCamera>, Without<CarCamera>, Without<PlayerCar>)>,
+) {
+    let Some((car, car_transform)) = car_query.iter().next() else { return };
+    for mut transform in minimap_query.iter_mut() {
+        let pos = Vec3::new(car_transform.translation.x, 120.0, car_transform.translation.z);
+        let target = Vec3::new(car_transform.translation.x, 0.0, car_transform.translation.z);
+        let up = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
+        *transform = Transform::from_translation(pos).looking_at(target, up);
+    }
 }
