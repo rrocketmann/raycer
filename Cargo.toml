@@ -15,6 +15,7 @@ rand_chacha = "0.9"
 
 [features]
 default = []
+web = ["bevy/webgl2"]
 
 # Speed up compilation for development
 [profile.dev]
