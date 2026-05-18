@@ -367,9 +367,9 @@ fn spawn_skid_marks(
     let right = Vec3::new(car_state.yaw.cos(), 0.0, -car_state.yaw.sin());
     let rotation = Quat::from_rotation_y(car_state.yaw) * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
 
-    for lateral in [-0.45_f32, 0.45_f32] {
+    for lateral in [-0.8_f32, 0.0_f32] {
         let pos = car_state.position - forward * 1.0 + right * lateral;
-        let pos = Vec3::new(pos.x, 0.005, pos.z);
+        let pos = Vec3::new(pos.x, 0.02, pos.z);
 
         commands.spawn((
             Mesh3d(skid_assets.mesh.clone()),
