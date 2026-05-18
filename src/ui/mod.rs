@@ -3,7 +3,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::car::{Car, CarState, PlayerCar};
 use crate::car::Telemetry;
-use crate::car::MAP_HALF_SIZE;
+use crate::car::{ARENA_RADIUS, SkidOffsets};
 
 pub struct UiPlugin;
 
@@ -17,6 +17,7 @@ fn egui_panel(
     mut contexts: EguiContexts,
     telemetry: Res<Telemetry>,
     car_state: Res<CarState>,
+    mut skid_offsets: ResMut<SkidOffsets>,
     car_query: Query<(&Car, &Transform), With<PlayerCar>>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
@@ -67,7 +68,7 @@ fn egui_panel(
             ui.separator();
             ui.heading("Map");
             ui.add_space(2.0);
-            draw_minimap(ui, car_state.position, car_yaw, MAP_HALF_SIZE);
+            draw_minimap(ui, car_state.position, car_yaw, ARENA_RADIUS);
 
             ui.separator();
             ui.add_space(8.0);
@@ -84,6 +85,11 @@ fn egui_panel(
             ui.horizontal(|ui| {
                 draw_key(ui, "Shift", shift, 50.0);
             });
+
+            ui.separator();
+            ui.heading("Debug");
+            ui.add(egui::Slider::new(&mut skid_offsets.left, -3.0..=3.0).text("Skid L"));
+            ui.add(egui::Slider::new(&mut skid_offsets.right, -3.0..=3.0).text("Skid R"));
         });
 }
 

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::car::{Car, CarCamera, CarVisual, PlayerCar, MAP_HALF_SIZE};
+use crate::car::{Car, CarCamera, CarVisual, PlayerCar, ARENA_RADIUS};
 
 pub struct TrackPlugin;
 
@@ -69,8 +69,9 @@ fn spawn_barrier(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) {
-    let barrier_radius = MAP_HALF_SIZE + 2.0;
-    let wall_height = 2.0;
+    let tube_radius = 0.4;
+    let inner_radius = ARENA_RADIUS;
+    let outer_radius = inner_radius + tube_radius * 2.0;
 
     let wall_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.35, 0.33, 0.30),
@@ -78,17 +79,17 @@ fn spawn_barrier(
         ..default()
     });
 
-    let cylinder = meshes.add(
-        Cylinder::new(barrier_radius, wall_height)
+    let torus = meshes.add(
+        Torus::new(inner_radius, outer_radius)
             .mesh()
-            .resolution(512)
-            .without_caps()
+            .minor_resolution(16)
+            .major_resolution(64)
             .build(),
     );
 
     commands.spawn((
-        Mesh3d(cylinder),
+        Mesh3d(torus),
         MeshMaterial3d(wall_mat),
-        Transform::from_xyz(0.0, wall_height * 0.5, 0.0),
+        Transform::from_xyz(0.0, tube_radius, 0.0),
     ));
 }

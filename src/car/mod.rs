@@ -8,6 +8,7 @@ impl Plugin for CarPlugin {
             .init_resource::<Telemetry>()
             .init_resource::<WheelState>()
             .init_resource::<CarState>()
+            .init_resource::<SkidOffsets>()
             .add_systems(Startup, setup_skid_assets)
             .add_systems(FixedUpdate, car_movement)
             .add_systems(Update, (camera_follow, update_car_visuals, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
@@ -62,7 +63,8 @@ impl Default for CarParams {
     }
 }
 
-pub const MAP_HALF_SIZE: f32 = 60.0;
+pub const ARENA_RADIUS: f32 = 60.0;
+pub const CAR_COLLISION_RADIUS: f32 = 1.3;
 
 #[derive(Resource)]
 pub struct Telemetry {
@@ -121,6 +123,18 @@ pub struct SkidMark {
 #[derive(Resource)]
 pub struct SkidMarkAssets {
     pub mesh: Handle<Mesh>,
+}
+
+#[derive(Resource)]
+pub struct SkidOffsets {
+    pub left: f32,
+    pub right: f32,
+}
+
+impl Default for SkidOffsets {
+    fn default() -> Self {
+        Self { left: -0.07, right: -0.62 }
+    }
 }
 
 fn car_movement(
@@ -186,12 +200,14 @@ fn car_movement(
         for mut transform in car_transform.iter_mut() {
             let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
             transform.translation += forward * car.speed * dt;
-            let dist = (transform.translation.x * transform.translation.x + transform.translation.z * transform.translation.z).sqrt();
-            if dist > MAP_HALF_SIZE {
-                let scale = MAP_HALF_SIZE / dist;
-                transform.translation.x *= scale;
-                transform.translation.z *= scale;
-                let wall_normal = Vec3::new(transform.translation.x, 0.0, transform.translation.z).normalize();
+            let car_center = transform.translation - forward * 1.2;
+            let effective_radius = ARENA_RADIUS - CAR_COLLISION_RADIUS;
+            let dist = (car_center.x * car_center.x + car_center.z * car_center.z).sqrt();
+            if dist > effective_radius {
+                let scale = effective_radius / dist;
+                let offset = transform.translation - car_center;
+                transform.translation = car_center * scale + offset;
+                let wall_normal = Vec3::new(car_center.x, 0.0, car_center.z).normalize();
                 let velocity = forward * car.speed;
                 let vel_along_wall = velocity - wall_normal * velocity.dot(wall_normal);
                 car.speed = vel_along_wall.dot(forward).signum() * vel_along_wall.length();
@@ -343,6 +359,7 @@ fn spawn_skid_marks(
     time: Res<Time>,
     car_state: Res<CarState>,
     skid_assets: Res<SkidMarkAssets>,
+    skid_offsets: Res<SkidOffsets>,
     skid_count: Query<(), With<SkidMark>>,
     mut commands: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -367,7 +384,7 @@ fn spawn_skid_marks(
     let right = Vec3::new(car_state.yaw.cos(), 0.0, -car_state.yaw.sin());
     let rotation = Quat::from_rotation_y(car_state.yaw) * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
 
-    for lateral in [-0.8_f32, 0.0_f32] {
+    for lateral in [skid_offsets.left, skid_offsets.right] {
         let pos = car_state.position - forward * 1.0 + right * lateral;
         let pos = Vec3::new(pos.x, 0.02, pos.z);
 
