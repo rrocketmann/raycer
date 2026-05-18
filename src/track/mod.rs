@@ -43,7 +43,7 @@ fn spawn_world(
             illuminance: 16000.0,
             shadows_enabled: true,
             shadow_depth_bias: 0.02,
-            shadow_normal_bias: 0.6,
+            shadow_normal_bias: 0.3,
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -1.2, 0.4, 0.0)),
