@@ -1,7 +1,5 @@
 use bevy::prelude::*;
 
-use crate::track::MinimapCamera;
-
 pub struct CarPlugin;
 
 impl Plugin for CarPlugin {
@@ -9,8 +7,10 @@ impl Plugin for CarPlugin {
         app.init_resource::<CarParams>()
             .init_resource::<Telemetry>()
             .init_resource::<WheelState>()
+            .init_resource::<CarState>()
+            .add_systems(Startup, setup_skid_assets)
             .add_systems(FixedUpdate, car_movement)
-            .add_systems(Update, (camera_follow, update_car_visuals, label_wheels, animate_wheels, record_telemetry, update_minimap_camera));
+            .add_systems(Update, (camera_follow, update_car_visuals, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
     }
 }
 
@@ -102,53 +102,87 @@ pub struct WheelState {
     pub target_angle: f32,
 }
 
+#[derive(Resource, Default)]
+pub struct CarState {
+    pub speed: f32,
+    pub yaw: f32,
+    pub position: Vec3,
+    pub braking: bool,
+    pub skidding: bool,
+    pub boosting: bool,
+    pub prev_speed: f32,
+}
+
+#[derive(Component)]
+pub struct SkidMark {
+    pub timer: Timer,
+}
+
+#[derive(Resource)]
+pub struct SkidMarkAssets {
+    pub mesh: Handle<Mesh>,
+}
+
 fn car_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     params: Res<CarParams>,
     mut query: Query<&mut Car, With<PlayerCar>>,
     mut car_transform: Query<&mut Transform, (With<PlayerCar>, With<CarVisual>)>,
+    mut car_state: ResMut<CarState>,
 ) {
     let dt = time.delta_secs();
 
+    let throttle = if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+        1.0
+    } else if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
+        -0.5
+    } else {
+        0.0
+    };
+
+    let steer_input = if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
+        1.0
+    } else if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
+        -1.0
+    } else {
+        0.0
+    };
+
+    let braking = keys.pressed(KeyCode::Space);
+    let boosting = keys.pressed(KeyCode::ShiftLeft);
+
     for mut car in query.iter_mut() {
-        let throttle = if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
-            1.0
-        } else if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
-            -0.5
-        } else {
-            0.0
-        };
-
-        let steer_input = if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
-            1.0
-        } else if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
-            -1.0
-        } else {
-            0.0
-        };
-
-        let braking = keys.pressed(KeyCode::Space);
-
-        let steer = steer_input * params.steer_rate * (1.0 - (car.speed / params.max_speed).abs() * 0.5);
+        let boost_multiplier = if boosting { 1.5 } else { 1.0 };
+        let steer_penalty = if boosting { 0.5 } else { 1.0 };
+        let max_speed_boosted = params.max_speed * boost_multiplier;
+        let steer = steer_input * params.steer_rate * steer_penalty * (1.0 - (car.speed / max_speed_boosted).abs() * 0.5);
 
         if braking {
-            car.speed -= car.speed.signum() * params.brake_force * dt;
-            if car.speed.abs() < 1.0 {
-                car.speed = 0.0;
+            let brake_amount = params.brake_force * dt;
+            if car.speed > 0.0 {
+                car.speed = (car.speed - brake_amount).max(0.0);
+            } else if car.speed < 0.0 {
+                car.speed = (car.speed + brake_amount).min(0.0);
             }
         } else {
-            car.speed += (throttle * params.acceleration - car.speed * params.friction) * dt;
+            let accel = throttle * params.acceleration * boost_multiplier;
+            car.speed += (accel - car.speed * params.friction) * dt;
         }
 
-        let steer_friction = steer.abs() * car.speed.abs() * 0.02;
+        let steer_friction = if braking {
+            steer.abs() * car.speed.abs() * 0.02
+        } else {
+            steer.abs() * car.speed.abs() * 0.10
+        };
         car.speed -= car.speed.signum() * steer_friction * dt;
 
-        car.speed = car.speed.clamp(-params.max_speed * 0.3, params.max_speed);
+        car.speed = car.speed.clamp(-params.max_speed * 0.3, max_speed_boosted);
         car.yaw += steer * dt * (car.speed / 30.0).clamp(-1.0, 1.0);
     }
 
-    if let Ok(car) = query.single() {
+    if let Ok(mut car) = query.single_mut() {
+        let mut pos = Vec3::ZERO;
         for mut transform in car_transform.iter_mut() {
             let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
             transform.translation += forward * car.speed * dt;
@@ -157,14 +191,29 @@ fn car_movement(
                 let scale = MAP_HALF_SIZE / dist;
                 transform.translation.x *= scale;
                 transform.translation.z *= scale;
+                let wall_normal = Vec3::new(transform.translation.x, 0.0, transform.translation.z).normalize();
+                let velocity = forward * car.speed;
+                let vel_along_wall = velocity - wall_normal * velocity.dot(wall_normal);
+                car.speed = vel_along_wall.dot(forward).signum() * vel_along_wall.length();
+                car.speed *= 0.8;
             }
+            pos = transform.translation;
         }
+        let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
+        let speed_delta = (car.speed - car_state.prev_speed).abs() / dt.max(0.001);
+        car_state.skidding = (braking && car.speed.abs() > 10.0) || (throttle == 0.0 && car.speed.abs() > 40.0 && decel_rate > 1.5) || (speed_delta > 25.0 && car.speed.abs() > 10.0);
+        car_state.prev_speed = car.speed;
+        car_state.speed = car.speed;
+        car_state.yaw = car.yaw;
+        car_state.braking = braking;
+        car_state.boosting = boosting;
+        car_state.position = pos;
     }
 }
 
 fn camera_follow(
     car_query: Query<(&Car, &Transform), With<PlayerCar>>,
-    mut cam_query: Query<&mut Transform, (With<CarCamera>, Without<MinimapCamera>, Without<PlayerCar>)>,
+    mut cam_query: Query<&mut Transform, (With<CarCamera>, Without<PlayerCar>)>,
 ) {
     let Some((car, car_transform)) = car_query.iter().next() else {
         return;
@@ -282,15 +331,76 @@ fn record_telemetry(
     telemetry.push(car.speed, wheel_state.current_angle, yaw_rate);
 }
 
-fn update_minimap_camera(
-    car_query: Query<(&Car, &Transform), With<PlayerCar>>,
-    mut minimap_query: Query<&mut Transform, (With<MinimapCamera>, Without<CarCamera>, Without<PlayerCar>)>,
+fn setup_skid_assets(
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut commands: Commands,
 ) {
-    let Some((car, car_transform)) = car_query.iter().next() else { return };
-    for mut transform in minimap_query.iter_mut() {
-        let pos = Vec3::new(car_transform.translation.x, 120.0, car_transform.translation.z);
-        let target = Vec3::new(car_transform.translation.x, 0.0, car_transform.translation.z);
-        let up = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
-        *transform = Transform::from_translation(pos).looking_at(target, up);
+    let mesh = meshes.add(Rectangle::new(0.35, 0.9));
+    commands.insert_resource(SkidMarkAssets { mesh });
+}
+
+fn spawn_skid_marks(
+    time: Res<Time>,
+    car_state: Res<CarState>,
+    skid_assets: Res<SkidMarkAssets>,
+    skid_count: Query<(), With<SkidMark>>,
+    mut commands: Commands,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cooldown: Local<f32>,
+) {
+    *cooldown = (*cooldown - time.delta_secs()).max(0.0);
+
+    if !car_state.skidding || car_state.speed.abs() < 10.0 || *cooldown > 0.0 {
+        return;
+    }
+
+    if skid_count.iter().count() > 600 {
+        return;
+    }
+
+    *cooldown = 0.02;
+
+    let speed_ratio = ((car_state.speed.abs() - 15.0) / 80.0).min(1.0);
+    let base_alpha = 0.4 + 0.4 * speed_ratio;
+
+    let forward = Vec3::new(car_state.yaw.sin(), 0.0, car_state.yaw.cos());
+    let right = Vec3::new(car_state.yaw.cos(), 0.0, -car_state.yaw.sin());
+    let rotation = Quat::from_rotation_y(car_state.yaw) * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+
+    for lateral in [-0.45_f32, 0.45_f32] {
+        let pos = car_state.position - forward * 1.0 + right * lateral;
+        let pos = Vec3::new(pos.x, 0.005, pos.z);
+
+        commands.spawn((
+            Mesh3d(skid_assets.mesh.clone()),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgba(0.08, 0.08, 0.08, base_alpha),
+                alpha_mode: AlphaMode::Blend,
+                unlit: true,
+                ..default()
+            })),
+            Transform::from_translation(pos).with_rotation(rotation),
+            SkidMark {
+                timer: Timer::from_seconds(2.0, TimerMode::Once),
+            },
+        ));
+    }
+}
+
+fn fade_skid_marks(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut query: Query<(Entity, &mut SkidMark, &MeshMaterial3d<StandardMaterial>)>,
+) {
+    for (entity, mut skid, mat) in query.iter_mut() {
+        skid.timer.tick(time.delta());
+        let ratio = skid.timer.fraction();
+        if let Some(material) = materials.get_mut(&mat.0) {
+            material.base_color.set_alpha((1.0 - ratio) * 0.8);
+        }
+        if skid.timer.is_finished() {
+            commands.entity(entity).despawn();
+        }
     }
 }

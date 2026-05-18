@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
 
 use crate::car::{Car, CarCamera, CarVisual, PlayerCar, MAP_HALF_SIZE};
 
@@ -14,18 +13,11 @@ impl Plugin for TrackPlugin {
 #[derive(Component)]
 pub struct GroundPlane;
 
-#[derive(Component)]
-pub struct MinimapCamera;
-
-#[derive(Resource)]
-pub struct MinimapImage(pub Handle<Image>);
-
 fn spawn_world(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
 ) {
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
     commands.spawn((
@@ -62,26 +54,6 @@ fn spawn_world(
         Transform::from_xyz(0.0, 8.0, -15.0).looking_at(Vec3::ZERO, Vec3::Y),
         CarCamera,
     ));
-
-    let minimap_image = Image::new_target_texture(256, 256, TextureFormat::Rgba8UnormSrgb);
-    let minimap_handle = images.add(minimap_image);
-
-    commands.spawn((
-        Camera3d::default(),
-        Camera {
-            target: minimap_handle.clone().into(),
-            order: -1,
-            ..default()
-        },
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: bevy::camera::ScalingMode::FixedVertical { viewport_height: 15.0 },
-            ..OrthographicProjection::default_3d()
-        }),
-        Transform::from_xyz(0.0, 120.0, 0.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Z),
-        MinimapCamera,
-    ));
-
-    commands.insert_resource(MinimapImage(minimap_handle));
 
     commands.insert_resource(AmbientLight {
         color: Color::srgb(0.95, 0.92, 0.85),
