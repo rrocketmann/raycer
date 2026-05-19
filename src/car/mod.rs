@@ -225,29 +225,38 @@ fn car_movement(
                 car.y_velocity = 0.0;
                 car.airborne = false;
             }
+            if transform.translation.y < 0.0 {
+                transform.translation.y = 0.0;
+            }
 
-            let car_center = transform.translation - forward * 1.2;
+            let p = transform.translation;
             let check_points = [
-                car_center + forward * CAR_FRONT,
-                car_center - forward * CAR_BACK,
-                car_center + right * CAR_HALF_WIDTH,
-                car_center - right * CAR_HALF_WIDTH,
-                car_center + forward * CAR_FRONT + right * CAR_HALF_WIDTH,
-                car_center + forward * CAR_FRONT - right * CAR_HALF_WIDTH,
-                car_center - forward * CAR_BACK + right * CAR_HALF_WIDTH,
-                car_center - forward * CAR_BACK - right * CAR_HALF_WIDTH,
+                p,
+                p + forward * (CAR_FRONT + CAR_BACK) * 0.5,
+                p - forward * (CAR_FRONT + CAR_BACK) * 0.5,
+                p + right * CAR_HALF_WIDTH,
+                p - right * CAR_HALF_WIDTH,
+                p + forward * (CAR_FRONT + CAR_BACK) * 0.5 + right * CAR_HALF_WIDTH,
+                p + forward * (CAR_FRONT + CAR_BACK) * 0.5 - right * CAR_HALF_WIDTH,
+                p - forward * (CAR_FRONT + CAR_BACK) * 0.5 + right * CAR_HALF_WIDTH,
+                p - forward * (CAR_FRONT + CAR_BACK) * 0.5 - right * CAR_HALF_WIDTH,
             ];
 
             let mut max_dist = 0.0f32;
+            let mut farthest = Vec3::ZERO;
             for point in &check_points {
-                max_dist = max_dist.max((point.x * point.x + point.z * point.z).sqrt());
+                let d = (point.x * point.x + point.z * point.z).sqrt();
+                if d > max_dist {
+                    max_dist = d;
+                    farthest = *point;
+                }
             }
 
             if max_dist > ARENA_RADIUS {
+                let dir = Vec3::new(farthest.x, 0.0, farthest.z).normalize();
                 let push = max_dist - ARENA_RADIUS;
-                let center_dir = Vec3::new(car_center.x, 0.0, car_center.z).normalize();
-                transform.translation -= center_dir * push;
-                let wall_normal = Vec3::new(car_center.x, 0.0, car_center.z).normalize();
+                transform.translation -= dir * push;
+                let wall_normal = Vec3::new(transform.translation.x, 0.0, transform.translation.z).normalize();
                 let velocity = forward * car.speed;
                 let vel_along_wall = velocity - wall_normal * velocity.dot(wall_normal);
                 car.speed = vel_along_wall.dot(forward).signum() * vel_along_wall.length();

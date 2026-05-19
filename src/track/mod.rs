@@ -72,8 +72,9 @@ fn spawn_barrier(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) {
-    let tube_radius = 3.0;
-    let major_radius = ARENA_RADIUS + tube_radius;
+    let tube_radius = 1.5;
+    let inner_radius = ARENA_RADIUS;
+    let outer_radius = inner_radius + tube_radius * 2.0;
 
     let wall_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.35, 0.33, 0.30),
@@ -82,7 +83,7 @@ fn spawn_barrier(
     });
 
     let torus = meshes.add(
-        Torus::new(major_radius, tube_radius)
+        Torus::new(inner_radius, outer_radius)
             .mesh()
             .minor_resolution(16)
             .major_resolution(64)
@@ -92,6 +93,6 @@ fn spawn_barrier(
     commands.spawn((
         Mesh3d(torus),
         MeshMaterial3d(wall_mat),
-        Transform::from_xyz(0.0, 0.0, 0.0),
+        Transform::from_xyz(0.0, -tube_radius * 0.5, 0.0),
     ));
 }
