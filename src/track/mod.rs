@@ -58,7 +58,7 @@ fn spawn_world(
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
     commands.spawn((
         SceneRoot(map_scene),
-        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(10.0)),
+        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(50.0)),
         RigidBody::Static,
         ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
     ));
@@ -86,7 +86,7 @@ fn spawn_world(
     commands.spawn((
         Camera3d::default(),
         RenderTarget::Image(minimap_image.clone().into()),
-        Transform::from_xyz(0.0, 80.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 500.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
         MinimapCamera,
     ));
     commands.insert_resource(MinimapImage(minimap_image));
