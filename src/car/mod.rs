@@ -11,7 +11,7 @@ impl Plugin for CarPlugin {
             .init_resource::<CarState>()
             .init_resource::<SkidOffsets>()
             .add_systems(Startup, setup_skid_assets)
-            .add_systems(PhysicsSchedule, car_movement.before(PhysicsSystems::Prepare))
+            .add_systems(PreUpdate, car_movement)
             .add_systems(Update, (camera_follow, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
     }
 }
@@ -29,6 +29,9 @@ pub struct PlayerCar;
 
 #[derive(Component)]
 pub struct CarCamera;
+
+#[derive(Component)]
+pub struct MinimapCamera;
 
 #[derive(Component)]
 pub struct CarVisual;

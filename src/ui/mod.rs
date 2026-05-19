@@ -3,7 +3,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::car::{Car, CarState, PlayerCar};
 use crate::car::Telemetry;
-use crate::car::ARENA_RADIUS;
+use crate::track::MinimapImage;
 
 pub struct UiPlugin;
 
@@ -16,10 +16,14 @@ impl Plugin for UiPlugin {
 fn egui_panel(
     mut contexts: EguiContexts,
     telemetry: Res<Telemetry>,
-    car_state: Res<CarState>,
-    car_query: Query<(&Car, &Transform), With<PlayerCar>>,
+    _car_state: Res<CarState>,
+    _car_query: Query<&Car, With<PlayerCar>>,
     keys: Res<ButtonInput<KeyCode>>,
+    minimap_image: Res<MinimapImage>,
 ) {
+    contexts.add_image(bevy_egui::EguiTextureHandle::Strong(minimap_image.0.clone()));
+    let minimap_tex = contexts.image_id(&minimap_image.0);
+
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let w = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
     let a = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
@@ -28,8 +32,6 @@ fn egui_panel(
     let sp = keys.pressed(KeyCode::Space);
     let shift = keys.pressed(KeyCode::ShiftLeft);
     let rshift = keys.pressed(KeyCode::ShiftRight);
-
-    let car_yaw = car_query.iter().next().map(|(c, _)| c.yaw).unwrap_or(0.0);
 
     egui::SidePanel::right("telemetry")
         .min_width(220.0)
@@ -68,7 +70,11 @@ fn egui_panel(
             ui.separator();
             ui.heading("Map");
             ui.add_space(2.0);
-            draw_minimap(ui, car_state.position, car_yaw, ARENA_RADIUS);
+
+            let size = 180.0;
+            if let Some(texture_id) = minimap_tex {
+                ui.image(egui::load::SizedTexture::new(texture_id, egui::vec2(size, size)));
+            }
 
             ui.separator();
             ui.add_space(8.0);
@@ -106,27 +112,6 @@ fn draw_key(ui: &mut egui::Ui, label: &str, pressed: bool, width: f32) {
     painter.rect_filled(rect, 0.0, bg);
     painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80)), egui::StrokeKind::Outside);
     painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(14.0), fg);
-}
-
-fn draw_minimap(ui: &mut egui::Ui, car_pos: Vec3, _car_yaw: f32, map_half_size: f32) {
-    let size = 150.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
-    let painter = ui.painter();
-    let center = rect.center();
-    let outer_radius = size * 0.45;
-    let arena_radius = outer_radius * (map_half_size / (map_half_size + 2.0));
-
-    painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(20, 20, 20));
-
-    painter.circle_stroke(center, arena_radius, egui::Stroke::new(2.0, egui::Color32::from_rgb(160, 140, 100)));
-    painter.circle_stroke(center, outer_radius, egui::Stroke::new(3.0, egui::Color32::from_rgb(90, 85, 80)));
-
-    let car_x = center.x + (car_pos.x / map_half_size) * arena_radius;
-    let car_y = center.y - (car_pos.z / map_half_size) * arena_radius;
-
-    let sq = 4.0;
-    let car_rect = egui::Rect::from_center_size(egui::pos2(car_x, car_y), egui::vec2(sq * 2.0, sq * 2.0));
-    painter.rect_filled(car_rect, 0.0, egui::Color32::from_rgb(255, 140, 140));
 }
 
 fn draw_graph(ui: &mut egui::Ui, data: &[f32], min_val: f32, max_val: f32, color: egui::Color32) {
