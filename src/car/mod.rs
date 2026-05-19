@@ -52,13 +52,13 @@ pub struct WheelRearRight;
 #[derive(Component)]
 pub struct WheelsLabeled;
 
-pub const GRAVITY: f32 = 30.0;
-pub const JUMP_IMPULSE: f32 = 36.0;
-pub const JUMP_TILT: f32 = 0.15;
+pub const GRAVITY: f32 = 20.0;
+pub const JUMP_IMPULSE: f32 = 14.0;
 pub const GROUND_RAY_DISTANCE: f32 = 100.0;
 pub const CAR_GROUND_OFFSET: f32 = 0.05;
 pub const ARENA_RADIUS: f32 = 250.0;
-pub const AIRBORNE_THRESHOLD: f32 = 1.2;
+pub const AIRBORNE_THRESHOLD: f32 = 1.5;
+pub const SLOPE_ACCEL_FACTOR: f32 = 30.0;
 
 #[derive(Resource, Default)]
 pub struct GroundInfo {
@@ -254,6 +254,11 @@ fn car_movement(
     };
     car.speed -= car.speed.signum() * steer_friction * dt;
 
+    if !car.airborne {
+        let slope_forward = -(ground_info.normal.x * car.yaw.sin() + ground_info.normal.z * car.yaw.cos());
+        car.speed += slope_forward * SLOPE_ACCEL_FACTOR * dt;
+    }
+
     car.speed = car.speed.clamp(-params.max_speed * 0.3, max_speed_boosted);
     car.yaw += steer * dt * (car.speed / 30.0).clamp(-1.0, 1.0);
 
@@ -275,6 +280,7 @@ fn car_movement(
 
     if car.airborne || car.y_velocity > 0.0 {
         position.0.y += car.y_velocity * dt;
+        car.y_velocity -= GRAVITY * dt;
         if position.0.y <= target_y && car.y_velocity <= 0.0 {
             position.0.y = target_y;
             car.y_velocity = 0.0;
@@ -294,14 +300,9 @@ fn car_movement(
 
     let yaw_quat = Quat::from_rotation_y(car.yaw);
     if car.airborne {
-        let pitch = JUMP_TILT + (car.y_velocity * 0.01).clamp(-0.1, 0.1);
-        *rotation = Rotation::from(yaw_quat * Quat::from_rotation_x(pitch));
+        *rotation = Rotation::from(yaw_quat);
     } else {
-        let ground_normal = ground_info.normal;
-        let slope_pitch = (-ground_normal.x * car.yaw.cos() - ground_normal.z * car.yaw.sin()).asin();
-        let local_right = yaw_quat * Vec3::X;
-        let slope_roll = -(ground_normal.dot(local_right) - local_right.x * ground_normal.x - local_right.z * ground_normal.z);
-        *rotation = Rotation::from(yaw_quat * Quat::from_rotation_x(slope_pitch));
+        *rotation = Rotation::from(align_to_ground(yaw_quat, ground_info.normal));
     }
 
     let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
@@ -313,6 +314,21 @@ fn car_movement(
     car_state.braking = braking;
     car_state.boosting = boosting;
     car_state.position = position.0;
+}
+
+fn align_to_ground(yaw_quat: Quat, normal: Vec3) -> Quat {
+    let forward = yaw_quat * Vec3::NEG_Z;
+    let projected_forward = (forward - normal * forward.dot(normal)).normalize_or_zero();
+    if projected_forward.is_finite() && projected_forward.length_squared() > 0.001 {
+        let right = normal.cross(projected_forward).normalize_or_zero();
+        if right.is_finite() && right.length_squared() > 0.001 {
+            Quat::from_mat3(&Mat3::from_cols(right, normal, projected_forward))
+        } else {
+            yaw_quat
+        }
+    } else {
+        yaw_quat
+    }
 }
 
 fn camera_follow(
