@@ -55,8 +55,10 @@ pub struct WheelsLabeled;
 pub const GRAVITY: f32 = 30.0;
 pub const JUMP_IMPULSE: f32 = 36.0;
 pub const JUMP_TILT: f32 = 0.15;
-pub const GROUND_RAY_DISTANCE: f32 = 50.0;
-pub const CAR_HALF_HEIGHT: f32 = 0.5;
+pub const GROUND_RAY_DISTANCE: f32 = 100.0;
+pub const CAR_HALF_HEIGHT: f32 = 0.15;
+pub const ARENA_RADIUS: f32 = 250.0;
+pub const AIRBORNE_THRESHOLD: f32 = 0.8;
 
 #[derive(Resource, Default)]
 pub struct GroundY(pub f32);
@@ -248,25 +250,38 @@ fn car_movement(
     car.yaw += steer * dt * (car.speed / 30.0).clamp(-1.0, 1.0);
 
     let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
-    let new_xz = position.0 + forward * car.speed * dt;
+    let mut new_xz = position.0 + forward * car.speed * dt;
+
+    let dist = (new_xz.x * new_xz.x + new_xz.z * new_xz.z).sqrt();
+    if dist > ARENA_RADIUS {
+        let scale = ARENA_RADIUS / dist;
+        new_xz.x *= scale;
+        new_xz.z *= scale;
+        car.speed *= 0.5;
+    }
 
     position.0.x = new_xz.x;
     position.0.z = new_xz.z;
 
+    let target_y = ground_y.0 + CAR_HALF_HEIGHT;
+
     if car.airborne || car.y_velocity > 0.0 {
         position.0.y += car.y_velocity * dt;
-        if position.0.y <= ground_y.0 + CAR_HALF_HEIGHT && car.y_velocity <= 0.0 {
-            position.0.y = ground_y.0 + CAR_HALF_HEIGHT;
+        if position.0.y <= target_y && car.y_velocity <= 0.0 {
+            position.0.y = target_y;
             car.y_velocity = 0.0;
             car.airborne = false;
         }
+    } else if position.0.y > target_y + AIRBORNE_THRESHOLD {
+        car.airborne = true;
+        car.y_velocity = 0.0;
     } else {
-        position.0.y = ground_y.0 + CAR_HALF_HEIGHT;
+        position.0.y = position.0.y.lerp(target_y, 0.3);
         car.airborne = false;
     }
 
-    if position.0.y < ground_y.0 + CAR_HALF_HEIGHT {
-        position.0.y = ground_y.0 + CAR_HALF_HEIGHT;
+    if !car.airborne && position.0.y < target_y {
+        position.0.y = target_y;
     }
 
     let pitch = if car.airborne {
@@ -402,6 +417,7 @@ fn setup_skid_assets(
 fn spawn_skid_marks(
     time: Res<Time>,
     car_state: Res<CarState>,
+    ground_y: Res<GroundY>,
     skid_assets: Res<SkidMarkAssets>,
     skid_offsets: Res<SkidOffsets>,
     skid_count: Query<(), With<SkidMark>>,
@@ -427,10 +443,11 @@ fn spawn_skid_marks(
     let forward = Vec3::new(car_state.yaw.sin(), 0.0, car_state.yaw.cos());
     let right = Vec3::new(car_state.yaw.cos(), 0.0, -car_state.yaw.sin());
     let rotation = Quat::from_rotation_y(car_state.yaw) * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    let skid_y = ground_y.0 + 0.02;
 
     for lateral in [skid_offsets.left, skid_offsets.right] {
         let pos = car_state.position - forward * 1.0 + right * lateral;
-        let pos = Vec3::new(pos.x, car_state.position.y - CAR_HALF_HEIGHT + 0.02, pos.z);
+        let pos = Vec3::new(pos.x, skid_y, pos.z);
 
         commands.spawn((
             Mesh3d(skid_assets.mesh.clone()),
