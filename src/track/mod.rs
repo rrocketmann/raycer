@@ -1,7 +1,8 @@
 use bevy::prelude::*;
+use avian3d::prelude::*;
 use bevy_light::DirectionalLightShadowMap;
 
-use crate::car::{Car, CarCamera, CarVisual, PlayerCar, ARENA_RADIUS};
+use crate::car::{Car, CarCamera, CarPhysics, CarVisual, PlayerCar, ARENA_RADIUS};
 
 pub struct TrackPlugin;
 
@@ -27,6 +28,9 @@ fn spawn_world(
         Car { speed: 0.0, yaw: 0.0, y_velocity: 0.0, airborne: false },
         PlayerCar,
         CarVisual,
+        CarPhysics,
+        RigidBody::Kinematic,
+        Collider::capsule(0.5, 1.5),
     ));
 
     let ground_size = 150.0;
@@ -37,6 +41,14 @@ fn spawn_world(
             ..default()
         })),
         GroundPlane,
+        RigidBody::Static,
+        Collider::half_space(Vec3::Y),
+    ));
+
+    commands.spawn((
+        RigidBody::Static,
+        Collider::cylinder(ARENA_RADIUS, 10.0),
+        Transform::from_xyz(0.0, 5.0, 0.0),
     ));
 
     commands.spawn((
@@ -58,7 +70,7 @@ fn spawn_world(
         CarCamera,
     ));
 
-    commands.insert_resource(AmbientLight {
+    commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.95, 0.92, 0.85),
         brightness: 120.0,
         affects_lightmapped_meshes: true,
