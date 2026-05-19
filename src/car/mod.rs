@@ -155,18 +155,18 @@ impl Default for SkidOffsets {
 
 fn ground_raycast(
     spatial_query: SpatialQuery,
-    car_query: Query<&Position, With<PlayerCar>>,
+    car_query: Query<(Entity, &Position), With<PlayerCar>>,
     mut ground_y: ResMut<GroundY>,
 ) {
-    let Ok(car_pos) = car_query.single() else { return };
+    let Ok((car_entity, car_pos)) = car_query.single() else { return };
     let ray_origin = car_pos.0 + Vec3::new(0.0, GROUND_RAY_DISTANCE, 0.0);
-    let ray_dir = Dir3::NEG_Y;
+    let filter = SpatialQueryFilter::from_excluded_entities([car_entity]);
     let ground_hit = spatial_query.cast_ray(
         ray_origin,
-        ray_dir,
+        Dir3::NEG_Y,
         GROUND_RAY_DISTANCE * 2.0,
         true,
-        &SpatialQueryFilter::default(),
+        &filter,
     );
     ground_y.0 = if let Some(hit) = ground_hit {
         ray_origin.y - hit.distance
