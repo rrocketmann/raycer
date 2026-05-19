@@ -52,12 +52,15 @@ fn spawn_world(
         RigidBody::Kinematic,
         Position::default(),
         Rotation::default(),
+        Collider::capsule(0.5, 1.0),
     ));
 
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
     commands.spawn((
         SceneRoot(map_scene),
-        Transform::from_xyz(0.0, 0.0, 0.0),
+        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(10.0)),
+        RigidBody::Static,
+        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
     ));
 
     commands.spawn((
