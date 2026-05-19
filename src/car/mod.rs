@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use avian3d::prelude::*;
 
 pub struct CarPlugin;
 
@@ -10,8 +11,8 @@ impl Plugin for CarPlugin {
             .init_resource::<CarState>()
             .init_resource::<SkidOffsets>()
             .add_systems(Startup, setup_skid_assets)
-            .add_systems(FixedUpdate, car_movement)
-            .add_systems(Update, (camera_follow, update_car_visuals, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
+            .add_systems(PhysicsSchedule, car_movement.before(PhysicsSystems::Prepare))
+            .add_systems(Update, (camera_follow, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
     }
 }
 
@@ -149,7 +150,8 @@ fn car_movement(
     keys: Res<ButtonInput<KeyCode>>,
     params: Res<CarParams>,
     mut query: Query<&mut Car, With<PlayerCar>>,
-    mut car_transform: Query<&mut Transform, (With<PlayerCar>, With<CarVisual>)>,
+    mut car_position: Query<&mut Position, With<PlayerCar>>,
+    mut car_rotation: Query<&mut Rotation, (With<PlayerCar>, Without<CarCamera>)>,
     mut car_state: ResMut<CarState>,
 ) {
     let dt = time.delta_secs();
@@ -215,28 +217,43 @@ fn car_movement(
 
     if let Ok(mut car) = query.single_mut() {
         let mut pos = Vec3::ZERO;
-        for mut transform in car_transform.iter_mut() {
-            let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
-            transform.translation += forward * car.speed * dt;
+        let Ok(mut position) = car_position.single_mut() else { return };
+        let Ok(mut rotation) = car_rotation.single_mut() else { return };
 
-            transform.translation.y += car.y_velocity * dt;
-            if transform.translation.y <= 0.0 && car.airborne {
-                transform.translation.y = 0.0;
-                car.y_velocity = 0.0;
-                car.airborne = false;
-            }
-            if transform.translation.y < 0.0 {
-                transform.translation.y = 0.0;
-            }
+        let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
+        let new_pos = position.0 + forward * car.speed * dt;
+        let new_y = position.0.y + car.y_velocity * dt;
 
-            let dist = (transform.translation.x * transform.translation.x + transform.translation.z * transform.translation.z).sqrt();
-            if dist > ARENA_RADIUS {
-                let scale = ARENA_RADIUS / dist;
-                transform.translation.x *= scale;
-                transform.translation.z *= scale;
-                car.speed *= 0.8;
-            }
-            pos = transform.translation;
+        if new_y <= 0.0 && car.airborne {
+            position.0.y = 0.0;
+            car.y_velocity = 0.0;
+            car.airborne = false;
+        } else {
+            position.0.y = new_y;
+        }
+        if position.0.y < 0.0 {
+            position.0.y = 0.0;
+        }
+
+        position.0.x = new_pos.x;
+        position.0.z = new_pos.z;
+
+        let pitch = if car.airborne {
+            JUMP_TILT + (car.y_velocity * 0.01).clamp(-0.1, 0.1)
+        } else {
+            0.0
+        };
+        *rotation = Rotation::from(Quat::from_rotation_y(car.yaw) * Quat::from_rotation_x(pitch));
+
+        pos = position.0;
+
+        let dist = (position.0.x * position.0.x + position.0.z * position.0.z).sqrt();
+        if dist > ARENA_RADIUS {
+            let scale = ARENA_RADIUS / dist;
+            position.0.x *= scale;
+            position.0.z *= scale;
+            car.speed *= 0.8;
+            pos = position.0;
         }
 
         let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
@@ -252,14 +269,14 @@ fn car_movement(
 }
 
 fn camera_follow(
-    car_query: Query<(&Car, &Transform), With<PlayerCar>>,
+    car_query: Query<(&Car, &Position), With<PlayerCar>>,
     mut cam_query: Query<&mut Transform, (With<CarCamera>, Without<PlayerCar>)>,
 ) {
-    let Some((car, car_transform)) = car_query.iter().next() else {
+    let Some((car, car_pos)) = car_query.iter().next() else {
         return;
     };
 
-    let car_pos = car_transform.translation;
+    let car_pos = car_pos.0;
     let behind = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos()) * -8.0;
     let target = car_pos + behind + Vec3::new(0.0, 5.0, 0.0);
 
@@ -270,19 +287,19 @@ fn camera_follow(
 }
 
 fn update_car_visuals(
-    mut car_query: Query<&mut Transform, (With<CarVisual>, With<PlayerCar>)>,
     car_data: Query<&Car, With<PlayerCar>>,
+    mut car_rotation: Query<&mut Rotation, (With<PlayerCar>, Without<CarCamera>)>,
 ) {
     let Some(car) = car_data.iter().next() else {
         return;
     };
-    for mut transform in car_query.iter_mut() {
+    for mut rot in car_rotation.iter_mut() {
         let pitch = if car.airborne {
             JUMP_TILT + (car.y_velocity * 0.01).clamp(-0.1, 0.1)
         } else {
             0.0
         };
-        transform.rotation = Quat::from_rotation_y(car.yaw) * Quat::from_rotation_x(pitch);
+        *rot = Rotation::from(Quat::from_rotation_y(car.yaw) * Quat::from_rotation_x(pitch));
     }
 }
 

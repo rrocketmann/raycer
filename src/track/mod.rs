@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use avian3d::prelude::*;
 use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight};
 
 use crate::car::{Car, CarCamera, CarVisual, PlayerCar};
@@ -11,14 +12,9 @@ impl Plugin for TrackPlugin {
     }
 }
 
-#[derive(Component)]
-pub struct GroundPlane;
-
 fn spawn_world(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
     commands.spawn((
@@ -27,12 +23,21 @@ fn spawn_world(
         Car { speed: 0.0, yaw: 0.0, y_velocity: 0.0, airborne: false },
         PlayerCar,
         CarVisual,
+        RigidBody::Kinematic,
+        Position::default(),
+        Rotation::default(),
+        Collider::capsule(0.5, 1.0),
     ));
 
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
     commands.spawn((
         SceneRoot(map_scene),
         Transform::from_xyz(0.0, 0.0, 0.0),
+    ));
+
+    commands.spawn((
+        RigidBody::Static,
+        Collider::half_space(Vec3::Y),
     ));
 
     commands.spawn((
