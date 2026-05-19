@@ -1,8 +1,7 @@
 use bevy::prelude::*;
-use avian3d::prelude::*;
-use bevy_light::DirectionalLightShadowMap;
+use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight};
 
-use crate::car::{Car, CarCamera, CarPhysics, CarVisual, PlayerCar, ARENA_RADIUS};
+use crate::car::{Car, CarCamera, CarVisual, PlayerCar};
 
 pub struct TrackPlugin;
 
@@ -28,27 +27,12 @@ fn spawn_world(
         Car { speed: 0.0, yaw: 0.0, y_velocity: 0.0, airborne: false },
         PlayerCar,
         CarVisual,
-        CarPhysics,
-        RigidBody::Kinematic,
-        Collider::capsule(0.5, 1.5),
     ));
 
-    let ground_size = 150.0;
+    let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
     commands.spawn((
-        Mesh3d(meshes.add(Mesh::from(Plane3d::new(Vec3::Y, Vec2::splat(ground_size))))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.76, 0.70, 0.50),
-            ..default()
-        })),
-        GroundPlane,
-        RigidBody::Static,
-        Collider::half_space(Vec3::Y),
-    ));
-
-    commands.spawn((
-        RigidBody::Static,
-        Collider::cylinder(ARENA_RADIUS, 10.0),
-        Transform::from_xyz(0.0, 5.0, 0.0),
+        SceneRoot(map_scene),
+        Transform::from_xyz(0.0, 0.0, 0.0),
     ));
 
     commands.spawn((
@@ -75,45 +59,4 @@ fn spawn_world(
         brightness: 120.0,
         affects_lightmapped_meshes: true,
     });
-
-    spawn_barrier(&mut commands, &mut meshes, &mut materials);
-}
-
-fn spawn_barrier(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-) {
-    let mountain_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.35, 0.30, 0.25),
-        ..default()
-    });
-
-    let num_mountains = 24;
-    for i in 0..num_mountains {
-        let angle = (i as f32 / num_mountains as f32) * std::f32::consts::TAU;
-        let variation = ((i * 7 + 3) % 5) as f32 * 0.6 + 0.8;
-        let height = 6.0 * variation;
-        let base_radius = 4.0 + variation * 1.5;
-
-        let cone = meshes.add(
-            Cone::default()
-                .mesh()
-                .resolution(5)
-                .build(),
-        );
-
-        let dist = ARENA_RADIUS + base_radius * 0.3;
-
-        commands.spawn((
-            Mesh3d(cone),
-            MeshMaterial3d(mountain_mat.clone()),
-            Transform::from_xyz(
-                angle.cos() * dist,
-                0.0,
-                angle.sin() * dist,
-            )
-            .with_scale(Vec3::new(base_radius * 2.0, height, base_radius * 2.0)),
-        ));
-    }
 }
