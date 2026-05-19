@@ -66,9 +66,6 @@ impl Default for CarParams {
 }
 
 pub const ARENA_RADIUS: f32 = 60.0;
-pub const CAR_FRONT: f32 = 0.8;
-pub const CAR_BACK: f32 = 0.8;
-pub const CAR_HALF_WIDTH: f32 = 0.5;
 pub const GRAVITY: f32 = 30.0;
 pub const JUMP_IMPULSE: f32 = 36.0;
 pub const JUMP_TILT: f32 = 0.15;
@@ -217,7 +214,6 @@ fn car_movement(
         let mut pos = Vec3::ZERO;
         for mut transform in car_transform.iter_mut() {
             let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
-            let right = Vec3::new(car.yaw.cos(), 0.0, -car.yaw.sin());
             transform.translation += forward * car.speed * dt;
 
             transform.translation.y += car.y_velocity * dt;
@@ -230,41 +226,16 @@ fn car_movement(
                 transform.translation.y = 0.0;
             }
 
-            let p = transform.translation;
-            let check_points = [
-                p,
-                p + forward * (CAR_FRONT + CAR_BACK) * 0.5,
-                p - forward * (CAR_FRONT + CAR_BACK) * 0.5,
-                p + right * CAR_HALF_WIDTH,
-                p - right * CAR_HALF_WIDTH,
-                p + forward * (CAR_FRONT + CAR_BACK) * 0.5 + right * CAR_HALF_WIDTH,
-                p + forward * (CAR_FRONT + CAR_BACK) * 0.5 - right * CAR_HALF_WIDTH,
-                p - forward * (CAR_FRONT + CAR_BACK) * 0.5 + right * CAR_HALF_WIDTH,
-                p - forward * (CAR_FRONT + CAR_BACK) * 0.5 - right * CAR_HALF_WIDTH,
-            ];
-
-            let mut max_dist = 0.0f32;
-            let mut farthest = Vec3::ZERO;
-            for point in &check_points {
-                let d = (point.x * point.x + point.z * point.z).sqrt();
-                if d > max_dist {
-                    max_dist = d;
-                    farthest = *point;
-                }
-            }
-
-            if max_dist > ARENA_RADIUS {
-                let dir = Vec3::new(farthest.x, 0.0, farthest.z).normalize();
-                let push = max_dist - ARENA_RADIUS;
-                transform.translation -= dir * push;
-                let wall_normal = Vec3::new(transform.translation.x, 0.0, transform.translation.z).normalize();
-                let velocity = forward * car.speed;
-                let vel_along_wall = velocity - wall_normal * velocity.dot(wall_normal);
-                car.speed = vel_along_wall.dot(forward).signum() * vel_along_wall.length();
+            let dist = (transform.translation.x * transform.translation.x + transform.translation.z * transform.translation.z).sqrt();
+            if dist > ARENA_RADIUS {
+                let scale = ARENA_RADIUS / dist;
+                transform.translation.x *= scale;
+                transform.translation.z *= scale;
                 car.speed *= 0.8;
             }
             pos = transform.translation;
         }
+
         let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
         let speed_delta = (car.speed - car_state.prev_speed).abs() / dt.max(0.001);
         car_state.skidding = (braking && car.speed.abs() > 10.0) || (throttle == 0.0 && car.speed.abs() > 40.0 && decel_rate > 1.5) || (speed_delta > 25.0 && car.speed.abs() > 10.0);
