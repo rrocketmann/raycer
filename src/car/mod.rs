@@ -51,10 +51,11 @@ pub struct WheelRearRight;
 #[derive(Component)]
 pub struct WheelsLabeled;
 
-pub const ARENA_RADIUS: f32 = 60.0;
 pub const GRAVITY: f32 = 30.0;
 pub const JUMP_IMPULSE: f32 = 36.0;
 pub const JUMP_TILT: f32 = 0.15;
+pub const GROUND_RAY_DISTANCE: f32 = 5.0;
+pub const CAR_HALF_HEIGHT: f32 = 0.5;
 
 #[derive(Resource)]
 pub struct Telemetry {
@@ -152,9 +153,8 @@ fn car_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     params: Res<CarParams>,
-    mut query: Query<&mut Car, With<PlayerCar>>,
-    mut car_position: Query<&mut Position, With<PlayerCar>>,
-    mut car_rotation: Query<&mut Rotation, (With<PlayerCar>, Without<CarCamera>)>,
+    spatial_query: SpatialQuery,
+    mut query: Query<(&mut Car, &mut Position, &mut Rotation), With<PlayerCar>>,
     mut car_state: ResMut<CarState>,
 ) {
     let dt = time.delta_secs();
@@ -179,96 +179,102 @@ fn car_movement(
     let boosting = keys.pressed(KeyCode::ShiftLeft);
     let jumping = keys.just_pressed(KeyCode::ShiftRight);
 
-    for mut car in query.iter_mut() {
-        let boost_multiplier = if boosting { 1.5 } else { 1.0 };
-        let steer_penalty = if boosting { 0.5 } else { 1.0 };
-        let air_steer = if car.airborne { 0.3 } else { 1.0 };
-        let max_speed_boosted = params.max_speed * boost_multiplier;
-        let steer = steer_input * params.steer_rate * steer_penalty * air_steer * (1.0 - (car.speed / max_speed_boosted).abs() * 0.5);
+    let (mut car, mut position, mut rotation) = match query.single_mut() {
+        Ok(q) => q,
+        Err(_) => return,
+    };
 
-        if jumping && !car.airborne {
-            car.y_velocity = JUMP_IMPULSE;
-            car.airborne = true;
-        }
+    let boost_multiplier = if boosting { 1.5 } else { 1.0 };
+    let steer_penalty = if boosting { 0.5 } else { 1.0 };
+    let air_steer = if car.airborne { 0.3 } else { 1.0 };
+    let max_speed_boosted = params.max_speed * boost_multiplier;
+    let steer = steer_input * params.steer_rate * steer_penalty * air_steer * (1.0 - (car.speed / max_speed_boosted).abs() * 0.5);
 
-        if car.airborne {
-            car.y_velocity -= GRAVITY * dt;
-        }
-
-        if braking {
-            let brake_amount = params.brake_force * dt;
-            if car.speed > 0.0 {
-                car.speed = (car.speed - brake_amount).max(0.0);
-            } else if car.speed < 0.0 {
-                car.speed = (car.speed + brake_amount).min(0.0);
-            }
-        } else {
-            let accel = throttle * params.acceleration * boost_multiplier;
-            car.speed += (accel - car.speed * params.friction) * dt;
-        }
-
-        let steer_friction = if braking {
-            steer.abs() * car.speed.abs() * 0.02
-        } else {
-            steer.abs() * car.speed.abs() * 0.10
-        };
-        car.speed -= car.speed.signum() * steer_friction * dt;
-
-        car.speed = car.speed.clamp(-params.max_speed * 0.3, max_speed_boosted);
-        car.yaw += steer * dt * (car.speed / 30.0).clamp(-1.0, 1.0);
+    if jumping && !car.airborne {
+        car.y_velocity = JUMP_IMPULSE;
+        car.airborne = true;
     }
 
-    if let Ok(mut car) = query.single_mut() {
-        let mut pos = Vec3::ZERO;
-        let Ok(mut position) = car_position.single_mut() else { return };
-        let Ok(mut rotation) = car_rotation.single_mut() else { return };
+    if car.airborne {
+        car.y_velocity -= GRAVITY * dt;
+    }
 
-        let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
-        let new_pos = position.0 + forward * car.speed * dt;
-        let new_y = position.0.y + car.y_velocity * dt;
+    if braking {
+        let brake_amount = params.brake_force * dt;
+        if car.speed > 0.0 {
+            car.speed = (car.speed - brake_amount).max(0.0);
+        } else if car.speed < 0.0 {
+            car.speed = (car.speed + brake_amount).min(0.0);
+        }
+    } else {
+        let accel = throttle * params.acceleration * boost_multiplier;
+        car.speed += (accel - car.speed * params.friction) * dt;
+    }
 
-        if new_y <= 0.0 && car.airborne {
-            position.0.y = 0.0;
+    let steer_friction = if braking {
+        steer.abs() * car.speed.abs() * 0.02
+    } else {
+        steer.abs() * car.speed.abs() * 0.10
+    };
+    car.speed -= car.speed.signum() * steer_friction * dt;
+
+    car.speed = car.speed.clamp(-params.max_speed * 0.3, max_speed_boosted);
+    car.yaw += steer * dt * (car.speed / 30.0).clamp(-1.0, 1.0);
+
+    let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
+    let new_xz = position.0 + forward * car.speed * dt;
+
+    let ray_origin = new_xz + Vec3::new(0.0, GROUND_RAY_DISTANCE, 0.0);
+    let ray_dir = Dir3::NEG_Y;
+    let ground_hit = spatial_query.cast_ray(
+        ray_origin,
+        ray_dir,
+        GROUND_RAY_DISTANCE * 2.0,
+        true,
+        &SpatialQueryFilter::default(),
+    );
+
+    let ground_y = if let Some(hit) = ground_hit {
+        ray_origin.y - hit.distance
+    } else {
+        0.0
+    };
+
+    position.0.x = new_xz.x;
+    position.0.z = new_xz.z;
+
+    if car.airborne || car.y_velocity > 0.0 {
+        position.0.y += car.y_velocity * dt;
+        if position.0.y <= ground_y + CAR_HALF_HEIGHT && car.y_velocity <= 0.0 {
+            position.0.y = ground_y + CAR_HALF_HEIGHT;
             car.y_velocity = 0.0;
             car.airborne = false;
-        } else {
-            position.0.y = new_y;
         }
-        if position.0.y < 0.0 {
-            position.0.y = 0.0;
-        }
-
-        position.0.x = new_pos.x;
-        position.0.z = new_pos.z;
-
-        let pitch = if car.airborne {
-            JUMP_TILT + (car.y_velocity * 0.01).clamp(-0.1, 0.1)
-        } else {
-            0.0
-        };
-        *rotation = Rotation::from(Quat::from_rotation_y(car.yaw) * Quat::from_rotation_x(pitch));
-
-        pos = position.0;
-
-        let dist = (position.0.x * position.0.x + position.0.z * position.0.z).sqrt();
-        if dist > ARENA_RADIUS {
-            let scale = ARENA_RADIUS / dist;
-            position.0.x *= scale;
-            position.0.z *= scale;
-            car.speed *= 0.8;
-            pos = position.0;
-        }
-
-        let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
-        let speed_delta = (car.speed - car_state.prev_speed).abs() / dt.max(0.001);
-        car_state.skidding = (braking && car.speed.abs() > 10.0) || (throttle == 0.0 && car.speed.abs() > 40.0 && decel_rate > 1.5) || (speed_delta > 25.0 && car.speed.abs() > 10.0);
-        car_state.prev_speed = car.speed;
-        car_state.speed = car.speed;
-        car_state.yaw = car.yaw;
-        car_state.braking = braking;
-        car_state.boosting = boosting;
-        car_state.position = pos;
+    } else {
+        position.0.y = ground_y + CAR_HALF_HEIGHT;
+        car.airborne = false;
     }
+
+    if position.0.y < ground_y + CAR_HALF_HEIGHT {
+        position.0.y = ground_y + CAR_HALF_HEIGHT;
+    }
+
+    let pitch = if car.airborne {
+        JUMP_TILT + (car.y_velocity * 0.01).clamp(-0.1, 0.1)
+    } else {
+        0.0
+    };
+    *rotation = Rotation::from(Quat::from_rotation_y(car.yaw) * Quat::from_rotation_x(pitch));
+
+    let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
+    let speed_delta = (car.speed - car_state.prev_speed).abs() / dt.max(0.001);
+    car_state.skidding = (braking && car.speed.abs() > 10.0) || (throttle == 0.0 && car.speed.abs() > 40.0 && decel_rate > 1.5) || (speed_delta > 25.0 && car.speed.abs() > 10.0);
+    car_state.prev_speed = car.speed;
+    car_state.speed = car.speed;
+    car_state.yaw = car.yaw;
+    car_state.braking = braking;
+    car_state.boosting = boosting;
+    car_state.position = position.0;
 }
 
 fn camera_follow(
@@ -286,23 +292,6 @@ fn camera_follow(
     for mut cam in cam_query.iter_mut() {
         cam.translation = cam.translation.lerp(target, 0.05);
         cam.look_at(car_pos + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
-    }
-}
-
-fn update_car_visuals(
-    car_data: Query<&Car, With<PlayerCar>>,
-    mut car_rotation: Query<&mut Rotation, (With<PlayerCar>, Without<CarCamera>)>,
-) {
-    let Some(car) = car_data.iter().next() else {
-        return;
-    };
-    for mut rot in car_rotation.iter_mut() {
-        let pitch = if car.airborne {
-            JUMP_TILT + (car.y_velocity * 0.01).clamp(-0.1, 0.1)
-        } else {
-            0.0
-        };
-        *rot = Rotation::from(Quat::from_rotation_y(car.yaw) * Quat::from_rotation_x(pitch));
     }
 }
 
@@ -431,7 +420,7 @@ fn spawn_skid_marks(
 
     for lateral in [skid_offsets.left, skid_offsets.right] {
         let pos = car_state.position - forward * 1.0 + right * lateral;
-        let pos = Vec3::new(pos.x, 0.02, pos.z);
+        let pos = Vec3::new(pos.x, car_state.position.y - CAR_HALF_HEIGHT + 0.02, pos.z);
 
         commands.spawn((
             Mesh3d(skid_assets.mesh.clone()),
