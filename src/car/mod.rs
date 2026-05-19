@@ -11,8 +11,9 @@ impl Plugin for CarPlugin {
             .init_resource::<CarState>()
             .init_resource::<SkidOffsets>()
             .init_resource::<GroundInfo>()
+            .init_resource::<WallInfo>()
             .add_systems(Startup, setup_skid_assets)
-            .add_systems(PreUpdate, (ground_raycast, car_movement).chain())
+            .add_systems(PreUpdate, (ground_raycast, wall_raycast, car_movement).chain())
             .add_systems(Update, (camera_follow, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
     }
 }
@@ -59,11 +60,17 @@ pub const CAR_GROUND_OFFSET: f32 = 0.05;
 pub const ARENA_RADIUS: f32 = 250.0;
 pub const AIRBORNE_THRESHOLD: f32 = 1.5;
 pub const SLOPE_ACCEL_FACTOR: f32 = 30.0;
+pub const WALL_RAY_DISTANCE: f32 = 2.0;
 
 #[derive(Resource, Default)]
 pub struct GroundInfo {
     pub y: f32,
     pub normal: Vec3,
+}
+
+#[derive(Resource, Default)]
+pub struct WallInfo {
+    pub blocked: bool,
 }
 
 #[derive(Resource)]
@@ -185,11 +192,32 @@ fn ground_raycast(
     }
 }
 
+fn wall_raycast(
+    spatial_query: SpatialQuery,
+    car_query: Query<(Entity, &Position, &Car), With<PlayerCar>>,
+    mut wall_info: ResMut<WallInfo>,
+) {
+    let Ok((car_entity, car_pos, car)) = car_query.single() else { return };
+    let forward = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
+    let ray_origin = car_pos.0 + Vec3::new(0.0, 0.5, 0.0);
+    let filter = SpatialQueryFilter::from_excluded_entities([car_entity]);
+    let direction = Dir3::new(forward).unwrap_or(Dir3::NEG_Z);
+    let wall_hit = spatial_query.cast_ray(
+        ray_origin,
+        direction,
+        WALL_RAY_DISTANCE,
+        true,
+        &filter,
+    );
+    wall_info.blocked = wall_hit.is_some();
+}
+
 fn car_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     params: Res<CarParams>,
     ground_info: Res<GroundInfo>,
+    wall_info: Res<WallInfo>,
     mut query: Query<(&mut Car, &mut Position, &mut Rotation), With<PlayerCar>>,
     mut car_state: ResMut<CarState>,
 ) {
@@ -255,14 +283,22 @@ fn car_movement(
     car.speed -= car.speed.signum() * steer_friction * dt;
 
     if !car.airborne {
-        let slope_forward = -(ground_info.normal.x * car.yaw.sin() + ground_info.normal.z * car.yaw.cos());
+        let forward_dir = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
+        let slope_forward = -(ground_info.normal.x * forward_dir.x + ground_info.normal.z * forward_dir.z);
         car.speed += slope_forward * SLOPE_ACCEL_FACTOR * dt;
+    }
+
+    if wall_info.blocked && car.speed > 0.0 {
+        car.speed *= 0.1;
+        if car.speed < 1.0 {
+            car.speed = 0.0;
+        }
     }
 
     car.speed = car.speed.clamp(-params.max_speed * 0.3, max_speed_boosted);
     car.yaw += steer * dt * (car.speed / 30.0).clamp(-1.0, 1.0);
 
-    let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
+    let forward = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
     let mut new_xz = position.0 + forward * car.speed * dt;
 
     let dist = (new_xz.x * new_xz.x + new_xz.z * new_xz.z).sqrt();
@@ -340,7 +376,8 @@ fn camera_follow(
     };
 
     let car_pos = car_pos.0;
-    let behind = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos()) * -8.0;
+    let forward = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
+    let behind = -forward * 10.0;
     let target = car_pos + behind + Vec3::new(0.0, 5.0, 0.0);
 
     for mut cam in cam_query.iter_mut() {
@@ -469,8 +506,8 @@ fn spawn_skid_marks(
     let speed_ratio = ((car_state.speed.abs() - 15.0) / 80.0).min(1.0);
     let base_alpha = 0.4 + 0.4 * speed_ratio;
 
-    let forward = Vec3::new(car_state.yaw.sin(), 0.0, car_state.yaw.cos());
-    let right = Vec3::new(car_state.yaw.cos(), 0.0, -car_state.yaw.sin());
+    let forward = Vec3::new(-car_state.yaw.sin(), 0.0, -car_state.yaw.cos());
+    let right = Vec3::new(-car_state.yaw.cos(), 0.0, car_state.yaw.sin());
     let yaw_quat = Quat::from_rotation_y(car_state.yaw);
     let normal = ground_info.normal;
     let surface_align = Quat::from_rotation_arc(Vec3::Y, normal);
