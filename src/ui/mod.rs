@@ -27,6 +27,7 @@ fn egui_panel(
     let d = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
     let sp = keys.pressed(KeyCode::Space);
     let shift = keys.pressed(KeyCode::ShiftLeft);
+    let rshift = keys.pressed(KeyCode::ShiftRight);
 
     let car_yaw = car_query.iter().next().map(|(c, _)| c.yaw).unwrap_or(0.0);
 
@@ -73,16 +74,18 @@ fn egui_panel(
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+                draw_key(ui, "L⇧", shift, 38.0);
+                draw_key(ui, "R⇧", rshift, 38.0);
+            });
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 draw_key(ui, "W", w, 28.0);
                 draw_key(ui, "A", a, 28.0);
                 draw_key(ui, "S", s, 28.0);
                 draw_key(ui, "D", d, 28.0);
                 ui.add_space(4.0);
-                draw_key(ui, "\u{2423}", sp, 28.0);
-            });
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                draw_key(ui, "Shift", shift, 50.0);
+                draw_key(ui, "⎵", sp, 28.0);
             });
         });
 }
