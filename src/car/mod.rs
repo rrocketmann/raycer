@@ -10,8 +10,9 @@ impl Plugin for CarPlugin {
             .init_resource::<WheelState>()
             .init_resource::<CarState>()
             .init_resource::<SkidOffsets>()
+            .init_resource::<GroundY>()
             .add_systems(Startup, setup_skid_assets)
-            .add_systems(PreUpdate, car_movement)
+            .add_systems(PreUpdate, (ground_raycast, car_movement).chain())
             .add_systems(Update, (camera_follow, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
     }
 }
@@ -54,8 +55,11 @@ pub struct WheelsLabeled;
 pub const GRAVITY: f32 = 30.0;
 pub const JUMP_IMPULSE: f32 = 36.0;
 pub const JUMP_TILT: f32 = 0.15;
-pub const GROUND_RAY_DISTANCE: f32 = 5.0;
+pub const GROUND_RAY_DISTANCE: f32 = 50.0;
 pub const CAR_HALF_HEIGHT: f32 = 0.5;
+
+#[derive(Resource, Default)]
+pub struct GroundY(pub f32);
 
 #[derive(Resource)]
 pub struct Telemetry {
@@ -149,11 +153,33 @@ impl Default for SkidOffsets {
     }
 }
 
+fn ground_raycast(
+    spatial_query: SpatialQuery,
+    car_query: Query<&Position, With<PlayerCar>>,
+    mut ground_y: ResMut<GroundY>,
+) {
+    let Ok(car_pos) = car_query.single() else { return };
+    let ray_origin = car_pos.0 + Vec3::new(0.0, GROUND_RAY_DISTANCE, 0.0);
+    let ray_dir = Dir3::NEG_Y;
+    let ground_hit = spatial_query.cast_ray(
+        ray_origin,
+        ray_dir,
+        GROUND_RAY_DISTANCE * 2.0,
+        true,
+        &SpatialQueryFilter::default(),
+    );
+    ground_y.0 = if let Some(hit) = ground_hit {
+        ray_origin.y - hit.distance
+    } else {
+        0.0
+    };
+}
+
 fn car_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     params: Res<CarParams>,
-    spatial_query: SpatialQuery,
+    ground_y: Res<GroundY>,
     mut query: Query<(&mut Car, &mut Position, &mut Rotation), With<PlayerCar>>,
     mut car_state: ResMut<CarState>,
 ) {
@@ -224,39 +250,23 @@ fn car_movement(
     let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
     let new_xz = position.0 + forward * car.speed * dt;
 
-    let ray_origin = new_xz + Vec3::new(0.0, GROUND_RAY_DISTANCE, 0.0);
-    let ray_dir = Dir3::NEG_Y;
-    let ground_hit = spatial_query.cast_ray(
-        ray_origin,
-        ray_dir,
-        GROUND_RAY_DISTANCE * 2.0,
-        true,
-        &SpatialQueryFilter::default(),
-    );
-
-    let ground_y = if let Some(hit) = ground_hit {
-        ray_origin.y - hit.distance
-    } else {
-        0.0
-    };
-
     position.0.x = new_xz.x;
     position.0.z = new_xz.z;
 
     if car.airborne || car.y_velocity > 0.0 {
         position.0.y += car.y_velocity * dt;
-        if position.0.y <= ground_y + CAR_HALF_HEIGHT && car.y_velocity <= 0.0 {
-            position.0.y = ground_y + CAR_HALF_HEIGHT;
+        if position.0.y <= ground_y.0 + CAR_HALF_HEIGHT && car.y_velocity <= 0.0 {
+            position.0.y = ground_y.0 + CAR_HALF_HEIGHT;
             car.y_velocity = 0.0;
             car.airborne = false;
         }
     } else {
-        position.0.y = ground_y + CAR_HALF_HEIGHT;
+        position.0.y = ground_y.0 + CAR_HALF_HEIGHT;
         car.airborne = false;
     }
 
-    if position.0.y < ground_y + CAR_HALF_HEIGHT {
-        position.0.y = ground_y + CAR_HALF_HEIGHT;
+    if position.0.y < ground_y.0 + CAR_HALF_HEIGHT {
+        position.0.y = ground_y.0 + CAR_HALF_HEIGHT;
     }
 
     let pitch = if car.airborne {
