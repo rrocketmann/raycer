@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_light::DirectionalLightShadowMap;
 
 use crate::car::{Car, CarCamera, CarVisual, PlayerCar, ARENA_RADIUS};
 
@@ -43,11 +44,13 @@ fn spawn_world(
             illuminance: 16000.0,
             shadows_enabled: true,
             shadow_depth_bias: 0.02,
-            shadow_normal_bias: 0.3,
+            shadow_normal_bias: 0.2,
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -1.2, 0.4, 0.0)),
     ));
+
+    commands.insert_resource(DirectionalLightShadowMap { size: 4096 });
 
     commands.spawn((
         Camera3d::default(),
