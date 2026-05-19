@@ -19,6 +19,8 @@ impl Plugin for CarPlugin {
 pub struct Car {
     pub speed: f32,
     pub yaw: f32,
+    pub y_velocity: f32,
+    pub airborne: bool,
 }
 
 #[derive(Component)]
@@ -64,7 +66,11 @@ impl Default for CarParams {
 }
 
 pub const ARENA_RADIUS: f32 = 60.0;
-pub const CAR_COLLISION_RADIUS: f32 = 1.3;
+pub const CAR_FRONT: f32 = 1.5;
+pub const CAR_BACK: f32 = 1.0;
+pub const CAR_HALF_WIDTH: f32 = 0.8;
+pub const GRAVITY: f32 = 30.0;
+pub const JUMP_IMPULSE: f32 = 12.0;
 
 #[derive(Resource)]
 pub struct Telemetry {
@@ -165,12 +171,23 @@ fn car_movement(
 
     let braking = keys.pressed(KeyCode::Space);
     let boosting = keys.pressed(KeyCode::ShiftLeft);
+    let jumping = keys.just_pressed(KeyCode::ShiftRight);
 
     for mut car in query.iter_mut() {
         let boost_multiplier = if boosting { 1.5 } else { 1.0 };
         let steer_penalty = if boosting { 0.5 } else { 1.0 };
+        let air_steer = if car.airborne { 0.3 } else { 1.0 };
         let max_speed_boosted = params.max_speed * boost_multiplier;
-        let steer = steer_input * params.steer_rate * steer_penalty * (1.0 - (car.speed / max_speed_boosted).abs() * 0.5);
+        let steer = steer_input * params.steer_rate * steer_penalty * air_steer * (1.0 - (car.speed / max_speed_boosted).abs() * 0.5);
+
+        if jumping && !car.airborne {
+            car.y_velocity = JUMP_IMPULSE;
+            car.airborne = true;
+        }
+
+        if car.airborne {
+            car.y_velocity -= GRAVITY * dt;
+        }
 
         if braking {
             let brake_amount = params.brake_force * dt;
@@ -199,14 +216,37 @@ fn car_movement(
         let mut pos = Vec3::ZERO;
         for mut transform in car_transform.iter_mut() {
             let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
+            let right = Vec3::new(car.yaw.cos(), 0.0, -car.yaw.sin());
             transform.translation += forward * car.speed * dt;
+
+            transform.translation.y += car.y_velocity * dt;
+            if transform.translation.y <= 0.0 && car.airborne {
+                transform.translation.y = 0.0;
+                car.y_velocity = 0.0;
+                car.airborne = false;
+            }
+
             let car_center = transform.translation - forward * 1.2;
-            let effective_radius = ARENA_RADIUS - CAR_COLLISION_RADIUS;
-            let dist = (car_center.x * car_center.x + car_center.z * car_center.z).sqrt();
-            if dist > effective_radius {
-                let scale = effective_radius / dist;
-                let offset = transform.translation - car_center;
-                transform.translation = car_center * scale + offset;
+            let check_points = [
+                car_center + forward * CAR_FRONT,
+                car_center - forward * CAR_BACK,
+                car_center + right * CAR_HALF_WIDTH,
+                car_center - right * CAR_HALF_WIDTH,
+                car_center + forward * CAR_FRONT + right * CAR_HALF_WIDTH,
+                car_center + forward * CAR_FRONT - right * CAR_HALF_WIDTH,
+                car_center - forward * CAR_BACK + right * CAR_HALF_WIDTH,
+                car_center - forward * CAR_BACK - right * CAR_HALF_WIDTH,
+            ];
+
+            let mut max_dist = 0.0f32;
+            for point in &check_points {
+                max_dist = max_dist.max((point.x * point.x + point.z * point.z).sqrt());
+            }
+
+            if max_dist > ARENA_RADIUS {
+                let push = max_dist - ARENA_RADIUS;
+                let center_dir = Vec3::new(car_center.x, 0.0, car_center.z).normalize();
+                transform.translation -= center_dir * push;
                 let wall_normal = Vec3::new(car_center.x, 0.0, car_center.z).normalize();
                 let velocity = forward * car.speed;
                 let vel_along_wall = velocity - wall_normal * velocity.dot(wall_normal);
@@ -237,12 +277,12 @@ fn camera_follow(
 
     let car_pos = car_transform.translation;
     let behind = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos()) * -8.0;
-    let up = Vec3::new(0.0, 5.0, 0.0);
+    let up = Vec3::new(0.0, 5.0 + car_pos.y, 0.0);
     let target = car_pos + behind + up;
 
     for mut cam in cam_query.iter_mut() {
         cam.translation = cam.translation.lerp(target, 0.05);
-        cam.look_at(car_pos + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
+        cam.look_at(car_pos + Vec3::new(0.0, 1.0 + car_pos.y * 0.5, 0.0), Vec3::Y);
     }
 }
 
