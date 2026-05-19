@@ -66,9 +66,9 @@ impl Default for CarParams {
 }
 
 pub const ARENA_RADIUS: f32 = 60.0;
-pub const CAR_FRONT: f32 = 1.5;
-pub const CAR_BACK: f32 = 1.0;
-pub const CAR_HALF_WIDTH: f32 = 0.8;
+pub const CAR_FRONT: f32 = 0.8;
+pub const CAR_BACK: f32 = 0.8;
+pub const CAR_HALF_WIDTH: f32 = 0.5;
 pub const GRAVITY: f32 = 30.0;
 pub const JUMP_IMPULSE: f32 = 36.0;
 pub const JUMP_TILT: f32 = 0.15;
@@ -287,12 +287,11 @@ fn camera_follow(
 
     let car_pos = car_transform.translation;
     let behind = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos()) * -8.0;
-    let up = Vec3::new(0.0, 5.0 + car_pos.y, 0.0);
-    let target = car_pos + behind + up;
+    let target = car_pos + behind + Vec3::new(0.0, 5.0, 0.0);
 
     for mut cam in cam_query.iter_mut() {
         cam.translation = cam.translation.lerp(target, 0.05);
-        cam.look_at(car_pos + Vec3::new(0.0, 1.0 + car_pos.y * 0.5, 0.0), Vec3::Y);
+        cam.look_at(car_pos + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
     }
 }
 

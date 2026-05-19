@@ -72,27 +72,36 @@ fn spawn_barrier(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) {
-    let tube_radius = 1.5;
-    let inner_radius = ARENA_RADIUS;
-    let outer_radius = inner_radius + tube_radius * 2.0;
-
-    let wall_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.35, 0.33, 0.30),
-        cull_mode: None,
+    let mountain_mat = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.35, 0.30, 0.25),
         ..default()
     });
 
-    let torus = meshes.add(
-        Torus::new(inner_radius, outer_radius)
-            .mesh()
-            .minor_resolution(16)
-            .major_resolution(64)
-            .build(),
-    );
+    let num_mountains = 24;
+    for i in 0..num_mountains {
+        let angle = (i as f32 / num_mountains as f32) * std::f32::consts::TAU;
+        let variation = ((i * 7 + 3) % 5) as f32 * 0.6 + 0.8;
+        let height = 6.0 * variation;
+        let base_radius = 4.0 + variation * 1.5;
 
-    commands.spawn((
-        Mesh3d(torus),
-        MeshMaterial3d(wall_mat),
-        Transform::from_xyz(0.0, -tube_radius * 0.5, 0.0),
-    ));
+        let cone = meshes.add(
+            Cone::default()
+                .mesh()
+                .resolution(5)
+                .build(),
+        );
+
+        let dist = ARENA_RADIUS + base_radius * 0.3;
+
+        commands.spawn((
+            Mesh3d(cone),
+            MeshMaterial3d(mountain_mat.clone()),
+            Transform::from_xyz(
+                angle.cos() * dist,
+                0.0,
+                angle.sin() * dist,
+            )
+            .with_scale(Vec3::new(base_radius * 2.0, height, base_radius * 2.0)),
+        ));
+    }
 }
