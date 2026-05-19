@@ -70,7 +70,8 @@ pub const CAR_FRONT: f32 = 1.5;
 pub const CAR_BACK: f32 = 1.0;
 pub const CAR_HALF_WIDTH: f32 = 0.8;
 pub const GRAVITY: f32 = 30.0;
-pub const JUMP_IMPULSE: f32 = 12.0;
+pub const JUMP_IMPULSE: f32 = 36.0;
+pub const JUMP_TILT: f32 = 0.15;
 
 #[derive(Resource)]
 pub struct Telemetry {
@@ -303,7 +304,12 @@ fn update_car_visuals(
         return;
     };
     for mut transform in car_query.iter_mut() {
-        transform.rotation = Quat::from_rotation_y(car.yaw);
+        let pitch = if car.airborne {
+            JUMP_TILT + (car.y_velocity * 0.01).clamp(-0.1, 0.1)
+        } else {
+            0.0
+        };
+        transform.rotation = Quat::from_rotation_y(car.yaw) * Quat::from_rotation_x(pitch);
     }
 }
 
