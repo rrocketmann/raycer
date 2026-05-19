@@ -21,10 +21,16 @@ fn egui_panel(
     keys: Res<ButtonInput<KeyCode>>,
     minimap_image: Res<MinimapImage>,
 ) {
-    contexts.add_image(bevy_egui::EguiTextureHandle::Strong(minimap_image.0.clone()));
-    let minimap_tex = contexts.image_id(&minimap_image.0);
+    let minimap_tex = {
+        contexts.add_image(bevy_egui::EguiTextureHandle::Strong(minimap_image.0.clone()));
+        contexts.image_id(&minimap_image.0)
+    };
 
-    let Ok(ctx) = contexts.ctx_mut() else { return };
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
     let w = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
     let a = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
     let s = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown);
@@ -80,8 +86,8 @@ fn egui_panel(
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                draw_key(ui, "L⇧", shift, 38.0);
-                draw_key(ui, "R⇧", rshift, 38.0);
+                draw_key(ui, "L\u{21e7}", shift, 38.0);
+                draw_key(ui, "R\u{21e7}", rshift, 38.0);
             });
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -91,7 +97,7 @@ fn egui_panel(
                 draw_key(ui, "S", s, 28.0);
                 draw_key(ui, "D", d, 28.0);
                 ui.add_space(4.0);
-                draw_key(ui, "⎵", sp, 28.0);
+                draw_key(ui, "\u{23f5}", sp, 28.0);
             });
         });
 }

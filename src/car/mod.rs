@@ -10,7 +10,7 @@ impl Plugin for CarPlugin {
             .init_resource::<WheelState>()
             .init_resource::<CarState>()
             .init_resource::<SkidOffsets>()
-            .init_resource::<GroundY>()
+            .init_resource::<GroundInfo>()
             .add_systems(Startup, setup_skid_assets)
             .add_systems(PreUpdate, (ground_raycast, car_movement).chain())
             .add_systems(Update, (camera_follow, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
@@ -56,12 +56,15 @@ pub const GRAVITY: f32 = 30.0;
 pub const JUMP_IMPULSE: f32 = 36.0;
 pub const JUMP_TILT: f32 = 0.15;
 pub const GROUND_RAY_DISTANCE: f32 = 100.0;
-pub const CAR_HALF_HEIGHT: f32 = 0.15;
+pub const CAR_GROUND_OFFSET: f32 = 0.05;
 pub const ARENA_RADIUS: f32 = 250.0;
-pub const AIRBORNE_THRESHOLD: f32 = 0.8;
+pub const AIRBORNE_THRESHOLD: f32 = 1.2;
 
 #[derive(Resource, Default)]
-pub struct GroundY(pub f32);
+pub struct GroundInfo {
+    pub y: f32,
+    pub normal: Vec3,
+}
 
 #[derive(Resource)]
 pub struct Telemetry {
@@ -158,7 +161,7 @@ impl Default for SkidOffsets {
 fn ground_raycast(
     spatial_query: SpatialQuery,
     car_query: Query<(Entity, &Position), With<PlayerCar>>,
-    mut ground_y: ResMut<GroundY>,
+    mut ground_info: ResMut<GroundInfo>,
 ) {
     let Ok((car_entity, car_pos)) = car_query.single() else { return };
     let ray_origin = car_pos.0 + Vec3::new(0.0, GROUND_RAY_DISTANCE, 0.0);
@@ -170,18 +173,23 @@ fn ground_raycast(
         true,
         &filter,
     );
-    ground_y.0 = if let Some(hit) = ground_hit {
-        ray_origin.y - hit.distance
-    } else {
-        0.0
-    };
+    match ground_hit {
+        Some(hit) => {
+            ground_info.y = ray_origin.y - hit.distance;
+            ground_info.normal = hit.normal;
+        }
+        None => {
+            ground_info.y = 0.0;
+            ground_info.normal = Vec3::Y;
+        }
+    }
 }
 
 fn car_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     params: Res<CarParams>,
-    ground_y: Res<GroundY>,
+    ground_info: Res<GroundInfo>,
     mut query: Query<(&mut Car, &mut Position, &mut Rotation), With<PlayerCar>>,
     mut car_state: ResMut<CarState>,
 ) {
@@ -263,7 +271,7 @@ fn car_movement(
     position.0.x = new_xz.x;
     position.0.z = new_xz.z;
 
-    let target_y = ground_y.0 + CAR_HALF_HEIGHT;
+    let target_y = ground_info.y + CAR_GROUND_OFFSET;
 
     if car.airborne || car.y_velocity > 0.0 {
         position.0.y += car.y_velocity * dt;
@@ -276,7 +284,7 @@ fn car_movement(
         car.airborne = true;
         car.y_velocity = 0.0;
     } else {
-        position.0.y = position.0.y.lerp(target_y, 0.3);
+        position.0.y = position.0.y.lerp(target_y, 0.4);
         car.airborne = false;
     }
 
@@ -284,12 +292,17 @@ fn car_movement(
         position.0.y = target_y;
     }
 
-    let pitch = if car.airborne {
-        JUMP_TILT + (car.y_velocity * 0.01).clamp(-0.1, 0.1)
+    let yaw_quat = Quat::from_rotation_y(car.yaw);
+    if car.airborne {
+        let pitch = JUMP_TILT + (car.y_velocity * 0.01).clamp(-0.1, 0.1);
+        *rotation = Rotation::from(yaw_quat * Quat::from_rotation_x(pitch));
     } else {
-        0.0
-    };
-    *rotation = Rotation::from(Quat::from_rotation_y(car.yaw) * Quat::from_rotation_x(pitch));
+        let ground_normal = ground_info.normal;
+        let slope_pitch = (-ground_normal.x * car.yaw.cos() - ground_normal.z * car.yaw.sin()).asin();
+        let local_right = yaw_quat * Vec3::X;
+        let slope_roll = -(ground_normal.dot(local_right) - local_right.x * ground_normal.x - local_right.z * ground_normal.z);
+        *rotation = Rotation::from(yaw_quat * Quat::from_rotation_x(slope_pitch));
+    }
 
     let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
     let speed_delta = (car.speed - car_state.prev_speed).abs() / dt.max(0.001);
@@ -417,7 +430,7 @@ fn setup_skid_assets(
 fn spawn_skid_marks(
     time: Res<Time>,
     car_state: Res<CarState>,
-    ground_y: Res<GroundY>,
+    ground_info: Res<GroundInfo>,
     skid_assets: Res<SkidMarkAssets>,
     skid_offsets: Res<SkidOffsets>,
     skid_count: Query<(), With<SkidMark>>,
@@ -442,8 +455,11 @@ fn spawn_skid_marks(
 
     let forward = Vec3::new(car_state.yaw.sin(), 0.0, car_state.yaw.cos());
     let right = Vec3::new(car_state.yaw.cos(), 0.0, -car_state.yaw.sin());
-    let rotation = Quat::from_rotation_y(car_state.yaw) * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    let skid_y = ground_y.0 + 0.02;
+    let yaw_quat = Quat::from_rotation_y(car_state.yaw);
+    let normal = ground_info.normal;
+    let surface_align = Quat::from_rotation_arc(Vec3::Y, normal);
+    let rotation = surface_align * yaw_quat * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    let skid_y = ground_info.y + 0.02;
 
     for lateral in [skid_offsets.left, skid_offsets.right] {
         let pos = car_state.position - forward * 1.0 + right * lateral;
