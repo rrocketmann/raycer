@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use avian3d::prelude::*;
 
 mod car;
 mod track;
@@ -17,7 +16,6 @@ fn main() {
 
     App::new()
         .add_plugins(DefaultPlugins.set(window_plugin))
-        .add_plugins(PhysicsPlugins::default())
         .add_plugins(bevy_egui::EguiPlugin::default())
         .add_plugins((car::CarPlugin, track::TrackPlugin, ui::UiPlugin))
         .run();

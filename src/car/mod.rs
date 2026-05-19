@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use avian3d::prelude::*;
 
 pub struct CarPlugin;
 
@@ -12,7 +11,6 @@ impl Plugin for CarPlugin {
             .init_resource::<SkidOffsets>()
             .add_systems(Startup, setup_skid_assets)
             .add_systems(FixedUpdate, car_movement)
-            .add_systems(PostUpdate, sync_car_physics)
             .add_systems(Update, (camera_follow, update_car_visuals, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
     }
 }
@@ -46,34 +44,13 @@ pub struct WheelRearLeft;
 #[derive(Component)]
 pub struct WheelRearRight;
 
-#[derive(Resource)]
-pub struct CarParams {
-    pub max_speed: f32,
-    pub acceleration: f32,
-    pub brake_force: f32,
-    pub friction: f32,
-    pub steer_rate: f32,
-}
-
-impl Default for CarParams {
-    fn default() -> Self {
-        Self {
-            max_speed: 240.0,
-            acceleration: 80.0,
-            brake_force: 160.0,
-            friction: 3.0,
-            steer_rate: 2.5,
-        }
-    }
-}
+#[derive(Component)]
+pub struct WheelsLabeled;
 
 pub const ARENA_RADIUS: f32 = 60.0;
 pub const GRAVITY: f32 = 30.0;
 pub const JUMP_IMPULSE: f32 = 36.0;
 pub const JUMP_TILT: f32 = 0.15;
-
-#[derive(Component)]
-pub struct CarPhysics;
 
 #[derive(Resource)]
 pub struct Telemetry {
@@ -95,7 +72,7 @@ impl Default for Telemetry {
 }
 
 impl Telemetry {
-    fn push(&mut self, speed: f32, steer: f32, yaw_rate: f32) {
+    pub fn record(&mut self, speed: f32, steer: f32, yaw_rate: f32) {
         self.speed_history.push(speed);
         self.steer_history.push(steer);
         self.yaw_rate_history.push(yaw_rate);
@@ -103,6 +80,27 @@ impl Telemetry {
             self.speed_history.remove(0);
             self.steer_history.remove(0);
             self.yaw_rate_history.remove(0);
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct CarParams {
+    pub acceleration: f32,
+    pub max_speed: f32,
+    pub friction: f32,
+    pub brake_force: f32,
+    pub steer_rate: f32,
+}
+
+impl Default for CarParams {
+    fn default() -> Self {
+        Self {
+            acceleration: 60.0,
+            max_speed: 80.0,
+            friction: 0.3,
+            brake_force: 45.0,
+            steer_rate: 2.5,
         }
     }
 }
@@ -231,6 +229,13 @@ fn car_movement(
                 transform.translation.y = 0.0;
             }
 
+            let dist = (transform.translation.x * transform.translation.x + transform.translation.z * transform.translation.z).sqrt();
+            if dist > ARENA_RADIUS {
+                let scale = ARENA_RADIUS / dist;
+                transform.translation.x *= scale;
+                transform.translation.z *= scale;
+                car.speed *= 0.8;
+            }
             pos = transform.translation;
         }
 
@@ -243,17 +248,6 @@ fn car_movement(
         car_state.braking = braking;
         car_state.boosting = boosting;
         car_state.position = pos;
-    }
-}
-
-fn sync_car_physics(
-    car_transform: Query<&Transform, (With<PlayerCar>, With<CarVisual>)>,
-    mut physics_bodies: Query<(&mut Position, &mut Rotation), With<CarPhysics>>,
-) {
-    let Ok(transform) = car_transform.single() else { return };
-    for (mut pos, mut rot) in physics_bodies.iter_mut() {
-        pos.0 = transform.translation;
-        *rot = Rotation::from(Quat::from_rotation_y(transform.rotation.to_euler(EulerRot::YXZ).0));
     }
 }
 
@@ -291,9 +285,6 @@ fn update_car_visuals(
         transform.rotation = Quat::from_rotation_y(car.yaw) * Quat::from_rotation_x(pitch);
     }
 }
-
-#[derive(Component)]
-pub struct WheelsLabeled;
 
 fn label_wheels(
     car_query: Query<Entity, (With<PlayerCar>, Without<WheelsLabeled>)>,
@@ -378,7 +369,7 @@ fn record_telemetry(
         return;
     };
     let yaw_rate = car.yaw;
-    telemetry.push(car.speed, wheel_state.current_angle, yaw_rate);
+    telemetry.record(car.speed, wheel_state.current_angle, yaw_rate);
 }
 
 fn setup_skid_assets(
