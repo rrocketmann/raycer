@@ -22,8 +22,6 @@ impl Plugin for CarPlugin {
 pub struct Car {
     pub speed: f32,
     pub yaw: f32,
-    pub y_velocity: f32,
-    pub airborne: bool,
 }
 
 #[derive(Component)]
@@ -53,12 +51,9 @@ pub struct WheelRearRight;
 #[derive(Component)]
 pub struct WheelsLabeled;
 
-pub const GRAVITY: f32 = 20.0;
-pub const JUMP_IMPULSE: f32 = 14.0;
 pub const GROUND_RAY_DISTANCE: f32 = 100.0;
 pub const CAR_GROUND_OFFSET: f32 = 0.05;
 pub const ARENA_RADIUS: f32 = 250.0;
-pub const AIRBORNE_THRESHOLD: f32 = 1.5;
 pub const SLOPE_ACCEL_FACTOR: f32 = 30.0;
 pub const WALL_RAY_DISTANCE: f32 = 2.0;
 
@@ -231,7 +226,7 @@ fn car_movement(
         0.0
     };
 
-    let steer_input = if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
+    let steer_input: f32 = if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
         1.0
     } else if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
         -1.0
@@ -240,8 +235,7 @@ fn car_movement(
     };
 
     let braking = keys.pressed(KeyCode::Space);
-    let boosting = keys.pressed(KeyCode::ShiftLeft);
-    let jumping = keys.just_pressed(KeyCode::ShiftRight);
+    let boosting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
     let (mut car, mut position, mut rotation) = match query.single_mut() {
         Ok(q) => q,
@@ -250,21 +244,23 @@ fn car_movement(
 
     let boost_multiplier = if boosting { 1.5 } else { 1.0 };
     let steer_penalty = if boosting { 0.5 } else { 1.0 };
-    let air_steer = if car.airborne { 0.3 } else { 1.0 };
     let max_speed_boosted = params.max_speed * boost_multiplier;
-    let steer = steer_input * params.steer_rate * steer_penalty * air_steer * (1.0 - (car.speed / max_speed_boosted).abs() * 0.5);
-
-    if jumping && !car.airborne {
-        car.y_velocity = JUMP_IMPULSE;
-        car.airborne = true;
-    }
-
-    if car.airborne {
-        car.y_velocity -= GRAVITY * dt;
-    }
+    let handbrake_turn = braking
+        && throttle > 0.0
+        && steer_input.abs() > 0.1
+        && car.speed > 5.0;
+    let handbrake_boost = if handbrake_turn { 1.4 } else { 1.0 };
+    let steer = steer_input
+        * params.steer_rate
+        * steer_penalty
+        * handbrake_boost
+        * (1.0 - (car.speed / max_speed_boosted).abs() * 0.5);
 
     if braking {
-        let brake_amount = params.brake_force * dt;
+        let mut brake_amount = params.brake_force * dt;
+        if handbrake_turn {
+            brake_amount *= 0.45;
+        }
         if car.speed > 0.0 {
             car.speed = (car.speed - brake_amount).max(0.0);
         } else if car.speed < 0.0 {
@@ -282,11 +278,9 @@ fn car_movement(
     };
     car.speed -= car.speed.signum() * steer_friction * dt;
 
-    if !car.airborne {
-        let forward_dir = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
-        let slope_forward = -(ground_info.normal.x * forward_dir.x + ground_info.normal.z * forward_dir.z);
-        car.speed += slope_forward * SLOPE_ACCEL_FACTOR * dt;
-    }
+    let forward_dir = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
+    let slope_forward = -(ground_info.normal.x * forward_dir.x + ground_info.normal.z * forward_dir.z);
+    car.speed += slope_forward * SLOPE_ACCEL_FACTOR * dt;
 
     if wall_info.blocked && car.speed > 0.0 {
         car.speed *= 0.1;
@@ -313,37 +307,17 @@ fn car_movement(
     position.0.z = new_xz.z;
 
     let target_y = ground_info.y + CAR_GROUND_OFFSET;
-
-    if car.airborne || car.y_velocity > 0.0 {
-        position.0.y += car.y_velocity * dt;
-        car.y_velocity -= GRAVITY * dt;
-        if position.0.y <= target_y && car.y_velocity <= 0.0 {
-            position.0.y = target_y;
-            car.y_velocity = 0.0;
-            car.airborne = false;
-        }
-    } else if position.0.y > target_y + AIRBORNE_THRESHOLD {
-        car.airborne = true;
-        car.y_velocity = 0.0;
-    } else {
-        position.0.y = position.0.y.lerp(target_y, 0.4);
-        car.airborne = false;
-    }
-
-    if !car.airborne && position.0.y < target_y {
-        position.0.y = target_y;
-    }
+    position.0.y = target_y;
 
     let yaw_quat = Quat::from_rotation_y(car.yaw);
-    if car.airborne {
-        *rotation = Rotation::from(yaw_quat);
-    } else {
-        *rotation = Rotation::from(align_to_ground(yaw_quat, ground_info.normal));
-    }
+    *rotation = Rotation::from(align_to_ground(yaw_quat, ground_info.normal));
 
     let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
     let speed_delta = (car.speed - car_state.prev_speed).abs() / dt.max(0.001);
-    car_state.skidding = (braking && car.speed.abs() > 10.0) || (throttle == 0.0 && car.speed.abs() > 40.0 && decel_rate > 1.5) || (speed_delta > 25.0 && car.speed.abs() > 10.0);
+    car_state.skidding = handbrake_turn
+        || (braking && car.speed.abs() > 10.0)
+        || (throttle == 0.0 && car.speed.abs() > 40.0 && decel_rate > 1.5)
+        || (speed_delta > 25.0 && car.speed.abs() > 10.0);
     car_state.prev_speed = car.speed;
     car_state.speed = car.speed;
     car_state.yaw = car.yaw;
@@ -481,27 +455,50 @@ fn setup_skid_assets(
 }
 
 fn spawn_skid_marks(
-    time: Res<Time>,
     car_state: Res<CarState>,
+    params: Res<CarParams>,
     ground_info: Res<GroundInfo>,
     skid_assets: Res<SkidMarkAssets>,
     skid_offsets: Res<SkidOffsets>,
     skid_count: Query<(), With<SkidMark>>,
     mut commands: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut cooldown: Local<f32>,
+    mut last_spawn: Local<Option<Vec3>>,
+    mut last_position: Local<Option<Vec3>>,
+    mut distance_accum: Local<f32>,
 ) {
-    *cooldown = (*cooldown - time.delta_secs()).max(0.0);
-
-    if !car_state.skidding || car_state.speed.abs() < 10.0 || *cooldown > 0.0 {
+    if !car_state.skidding || car_state.speed.abs() < 10.0 {
+        *last_spawn = None;
+        *last_position = None;
+        *distance_accum = 0.0;
         return;
     }
 
-    if skid_count.iter().count() > 600 {
+    let mut remaining = 600 - skid_count.iter().count();
+    if remaining < 2 {
         return;
     }
 
-    *cooldown = 0.02;
+    let speed_ratio = (car_state.speed.abs() / params.max_speed).clamp(0.0, 1.0);
+    let spacing = (0.18 - 0.12 * speed_ratio).max(0.06);
+    let last_pos = match *last_position {
+        Some(pos) => pos,
+        None => {
+            *last_spawn = Some(car_state.position);
+            *last_position = Some(car_state.position);
+            *distance_accum = 0.0;
+            return;
+        }
+    };
+    let delta = car_state.position - last_pos;
+    let dist = delta.length();
+    *last_position = Some(car_state.position);
+    if dist <= f32::EPSILON {
+        return;
+    }
+    let dir = delta / dist;
+    *distance_accum += dist;
+    let mut spawn_pos = last_spawn.unwrap_or(last_pos);
 
     let speed_ratio = ((car_state.speed.abs() - 15.0) / 80.0).min(1.0);
     let base_alpha = 0.4 + 0.4 * speed_ratio;
@@ -514,23 +511,30 @@ fn spawn_skid_marks(
     let rotation = surface_align * yaw_quat * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
     let skid_y = ground_info.y + 0.02;
 
-    for lateral in [skid_offsets.left, skid_offsets.right] {
-        let pos = car_state.position - forward * 1.0 + right * lateral;
-        let pos = Vec3::new(pos.x, skid_y, pos.z);
+    while *distance_accum >= spacing && remaining >= 2 {
+        spawn_pos += dir * spacing;
+        *distance_accum -= spacing;
+        *last_spawn = Some(spawn_pos);
+        remaining -= 2;
 
-        commands.spawn((
-            Mesh3d(skid_assets.mesh.clone()),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgba(0.08, 0.08, 0.08, base_alpha),
-                alpha_mode: AlphaMode::Blend,
-                unlit: true,
-                ..default()
-            })),
-            Transform::from_translation(pos).with_rotation(rotation),
-            SkidMark {
-                timer: Timer::from_seconds(2.0, TimerMode::Once),
-            },
-        ));
+        for lateral in [skid_offsets.left, skid_offsets.right] {
+            let pos = spawn_pos - forward * 1.0 + right * lateral;
+            let pos = Vec3::new(pos.x, skid_y, pos.z);
+
+            commands.spawn((
+                Mesh3d(skid_assets.mesh.clone()),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Color::srgba(0.08, 0.08, 0.08, base_alpha),
+                    alpha_mode: AlphaMode::Blend,
+                    unlit: true,
+                    ..default()
+                })),
+                Transform::from_translation(pos).with_rotation(rotation),
+                SkidMark {
+                    timer: Timer::from_seconds(2.0, TimerMode::Once),
+                },
+            ));
+        }
     }
 }
 

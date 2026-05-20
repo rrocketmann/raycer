@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureFormat, TextureUsages};
 use bevy_camera::RenderTarget;
+use bevy_egui::PrimaryEguiContext;
 use avian3d::prelude::*;
 use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight};
 
@@ -46,11 +47,11 @@ fn spawn_world(
     commands.spawn((
         SceneRoot(car_scene),
         Transform::from_xyz(0.0, 0.0, 0.0),
-        Car { speed: 0.0, yaw: 0.0, y_velocity: 0.0, airborne: false },
+        Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
         CarVisual,
         RigidBody::Kinematic,
-        Position::default(),
+        Position(Vec3::ZERO),
         Rotation::default(),
         Collider::capsule(0.5, 1.0),
     ));
@@ -80,6 +81,7 @@ fn spawn_world(
         Camera3d::default(),
         Transform::from_xyz(0.0, 8.0, -15.0).looking_at(Vec3::ZERO, Vec3::Y),
         CarCamera,
+        PrimaryEguiContext,
     ));
 
     let minimap_image = images.add(create_minimap_image(256, 256));

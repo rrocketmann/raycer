@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_egui::{egui, EguiContexts, EguiGlobalSettings, EguiPrimaryContextPass};
 
 use crate::car::{Car, CarState, PlayerCar};
 use crate::car::Telemetry;
@@ -9,6 +9,10 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(EguiGlobalSettings {
+            auto_create_primary_context: false,
+            ..default()
+        });
         app.add_systems(EguiPrimaryContextPass, egui_panel);
     }
 }
@@ -36,8 +40,7 @@ fn egui_panel(
     let s = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown);
     let d = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
     let sp = keys.pressed(KeyCode::Space);
-    let shift = keys.pressed(KeyCode::ShiftLeft);
-    let rshift = keys.pressed(KeyCode::ShiftRight);
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
     egui::SidePanel::right("telemetry")
         .min_width(220.0)
@@ -84,20 +87,31 @@ fn egui_panel(
 
             ui.separator();
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                draw_key(ui, "L\u{21e7}", shift, 38.0);
-                draw_key(ui, "R\u{21e7}", rshift, 38.0);
-            });
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                draw_key(ui, "W", w, 28.0);
-                draw_key(ui, "A", a, 28.0);
-                draw_key(ui, "S", s, 28.0);
-                draw_key(ui, "D", d, 28.0);
-                ui.add_space(4.0);
-                draw_key(ui, "\u{23f5}", sp, 28.0);
+            let key_width = 28.0;
+            let key_spacing = 4.0;
+            let shift_width = key_width * 2.0;
+            let space_width = shift_width * 2.0;
+            let row_indent = 8.0;
+            let w_indent = row_indent + key_width + key_spacing;
+
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(key_spacing, key_spacing);
+                ui.horizontal(|ui| {
+                    ui.add_space(w_indent);
+                    draw_key(ui, "W", w, key_width);
+                });
+                ui.horizontal(|ui| {
+                    ui.add_space(row_indent);
+                    draw_key(ui, "A", a, key_width);
+                    draw_key(ui, "S", s, key_width);
+                    draw_key(ui, "D", d, key_width);
+                });
+                ui.horizontal(|ui| {
+                    draw_key(ui, "Shift", shift, shift_width);
+                });
+                ui.horizontal(|ui| {
+                    draw_key(ui, "Space", sp, space_width);
+                });
             });
         });
 }
