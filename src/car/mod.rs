@@ -9,12 +9,31 @@ impl Plugin for CarPlugin {
             .init_resource::<Telemetry>()
             .init_resource::<WheelState>()
             .init_resource::<CarState>()
+            .init_resource::<CarInput>()
             .init_resource::<SkidOffsets>()
             .init_resource::<GroundInfo>()
-            .init_resource::<WallInfo>()
             .add_systems(Startup, setup_skid_assets)
-            .add_systems(PreUpdate, (ground_raycast, wall_raycast, car_movement).chain())
-            .add_systems(Update, (camera_follow, label_wheels, animate_wheels, record_telemetry, spawn_skid_marks, fade_skid_marks));
+            .add_systems(
+                FixedPostUpdate,
+                apply_car_forces.in_set(PhysicsSystems::Prepare),
+            )
+            .add_systems(
+                FixedPostUpdate,
+                sync_car_state.in_set(PhysicsSystems::Last),
+            )
+            .add_systems(
+                Update,
+                (
+                    capture_input,
+                    ground_raycast,
+                    camera_follow,
+                    label_wheels,
+                    animate_wheels,
+                    record_telemetry,
+                    spawn_skid_marks,
+                    fade_skid_marks,
+                ),
+            );
     }
 }
 
@@ -52,20 +71,18 @@ pub struct WheelRearRight;
 pub struct WheelsLabeled;
 
 pub const GROUND_RAY_DISTANCE: f32 = 100.0;
-pub const CAR_GROUND_OFFSET: f32 = 0.05;
-pub const ARENA_RADIUS: f32 = 250.0;
-pub const SLOPE_ACCEL_FACTOR: f32 = 30.0;
-pub const WALL_RAY_DISTANCE: f32 = 2.0;
 
 #[derive(Resource, Default)]
 pub struct GroundInfo {
     pub y: f32,
     pub normal: Vec3,
 }
-
 #[derive(Resource, Default)]
-pub struct WallInfo {
-    pub blocked: bool,
+pub struct CarInput {
+    pub throttle: f32,
+    pub steer: f32,
+    pub braking: bool,
+    pub boosting: bool,
 }
 
 #[derive(Resource)]
@@ -102,21 +119,29 @@ impl Telemetry {
 
 #[derive(Resource)]
 pub struct CarParams {
-    pub acceleration: f32,
+    pub engine_force: f32,
     pub max_speed: f32,
-    pub friction: f32,
     pub brake_force: f32,
-    pub steer_rate: f32,
+    pub steer_torque: f32,
+    pub lateral_grip: f32,
+    pub max_lateral_force: f32,
+    pub rolling_resistance: f32,
+    pub drag: f32,
+    pub downforce: f32,
 }
 
 impl Default for CarParams {
     fn default() -> Self {
         Self {
-            acceleration: 60.0,
+            engine_force: 4200.0,
             max_speed: 80.0,
-            friction: 0.3,
-            brake_force: 45.0,
-            steer_rate: 2.5,
+            brake_force: 5200.0,
+            steer_torque: 2200.0,
+            lateral_grip: 120.0,
+            max_lateral_force: 4200.0,
+            rolling_resistance: 12.0,
+            drag: 0.35,
+            downforce: 2.5,
         }
     }
 }
@@ -187,38 +212,8 @@ fn ground_raycast(
     }
 }
 
-fn wall_raycast(
-    spatial_query: SpatialQuery,
-    car_query: Query<(Entity, &Position, &Car), With<PlayerCar>>,
-    mut wall_info: ResMut<WallInfo>,
-) {
-    let Ok((car_entity, car_pos, car)) = car_query.single() else { return };
-    let forward = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
-    let ray_origin = car_pos.0 + Vec3::new(0.0, 0.5, 0.0);
-    let filter = SpatialQueryFilter::from_excluded_entities([car_entity]);
-    let direction = Dir3::new(forward).unwrap_or(Dir3::NEG_Z);
-    let wall_hit = spatial_query.cast_ray(
-        ray_origin,
-        direction,
-        WALL_RAY_DISTANCE,
-        true,
-        &filter,
-    );
-    wall_info.blocked = wall_hit.is_some();
-}
-
-fn car_movement(
-    time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
-    params: Res<CarParams>,
-    ground_info: Res<GroundInfo>,
-    wall_info: Res<WallInfo>,
-    mut query: Query<(&mut Car, &mut Position, &mut Rotation), With<PlayerCar>>,
-    mut car_state: ResMut<CarState>,
-) {
-    let dt = time.delta_secs();
-
-    let throttle = if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+fn capture_input(keys: Res<ButtonInput<KeyCode>>, mut input: ResMut<CarInput>) {
+    input.throttle = if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
         1.0
     } else if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
         -0.5
@@ -226,7 +221,7 @@ fn car_movement(
         0.0
     };
 
-    let steer_input: f32 = if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
+    input.steer = if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
         1.0
     } else if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
         -1.0
@@ -234,111 +229,95 @@ fn car_movement(
         0.0
     };
 
-    let braking = keys.pressed(KeyCode::Space);
-    let boosting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-
-    let (mut car, mut position, mut rotation) = match query.single_mut() {
-        Ok(q) => q,
-        Err(_) => return,
-    };
-
-    let boost_multiplier = if boosting { 1.5 } else { 1.0 };
-    let steer_penalty = if boosting { 0.5 } else { 1.0 };
-    let max_speed_boosted = params.max_speed * boost_multiplier;
-    let handbrake_turn = braking
-        && throttle > 0.0
-        && steer_input.abs() > 0.1
-        && car.speed > 5.0;
-    let handbrake_boost = if handbrake_turn { 1.4 } else { 1.0 };
-    let steer = steer_input
-        * params.steer_rate
-        * steer_penalty
-        * handbrake_boost
-        * (1.0 - (car.speed / max_speed_boosted).abs() * 0.5);
-
-    if braking {
-        let mut brake_amount = params.brake_force * dt;
-        if handbrake_turn {
-            brake_amount *= 0.45;
-        }
-        if car.speed > 0.0 {
-            car.speed = (car.speed - brake_amount).max(0.0);
-        } else if car.speed < 0.0 {
-            car.speed = (car.speed + brake_amount).min(0.0);
-        }
-    } else {
-        let accel = throttle * params.acceleration * boost_multiplier;
-        car.speed += (accel - car.speed * params.friction) * dt;
-    }
-
-    let steer_friction = if braking {
-        steer.abs() * car.speed.abs() * 0.02
-    } else {
-        steer.abs() * car.speed.abs() * 0.10
-    };
-    car.speed -= car.speed.signum() * steer_friction * dt;
-
-    let forward_dir = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
-    let slope_forward = -(ground_info.normal.x * forward_dir.x + ground_info.normal.z * forward_dir.z);
-    car.speed += slope_forward * SLOPE_ACCEL_FACTOR * dt;
-
-    if wall_info.blocked && car.speed > 0.0 {
-        car.speed *= 0.1;
-        if car.speed < 1.0 {
-            car.speed = 0.0;
-        }
-    }
-
-    car.speed = car.speed.clamp(-params.max_speed * 0.3, max_speed_boosted);
-    car.yaw += steer * dt * (car.speed / 30.0).clamp(-1.0, 1.0);
-
-    let forward = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
-    let mut new_xz = position.0 + forward * car.speed * dt;
-
-    let dist = (new_xz.x * new_xz.x + new_xz.z * new_xz.z).sqrt();
-    if dist > ARENA_RADIUS {
-        let scale = ARENA_RADIUS / dist;
-        new_xz.x *= scale;
-        new_xz.z *= scale;
-        car.speed *= 0.5;
-    }
-
-    position.0.x = new_xz.x;
-    position.0.z = new_xz.z;
-
-    let target_y = ground_info.y + CAR_GROUND_OFFSET;
-    position.0.y = target_y;
-
-    let yaw_quat = Quat::from_rotation_y(car.yaw);
-    *rotation = Rotation::from(align_to_ground(yaw_quat, ground_info.normal));
-
-    let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
-    let speed_delta = (car.speed - car_state.prev_speed).abs() / dt.max(0.001);
-    car_state.skidding = handbrake_turn
-        || (braking && car.speed.abs() > 10.0)
-        || (throttle == 0.0 && car.speed.abs() > 40.0 && decel_rate > 1.5)
-        || (speed_delta > 25.0 && car.speed.abs() > 10.0);
-    car_state.prev_speed = car.speed;
-    car_state.speed = car.speed;
-    car_state.yaw = car.yaw;
-    car_state.braking = braking;
-    car_state.boosting = boosting;
-    car_state.position = position.0;
+    input.braking = keys.pressed(KeyCode::Space);
+    input.boosting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 }
 
-fn align_to_ground(yaw_quat: Quat, normal: Vec3) -> Quat {
-    let forward = yaw_quat * Vec3::NEG_Z;
-    let projected_forward = (forward - normal * forward.dot(normal)).normalize_or_zero();
-    if projected_forward.is_finite() && projected_forward.length_squared() > 0.001 {
-        let right = normal.cross(projected_forward).normalize_or_zero();
-        if right.is_finite() && right.length_squared() > 0.001 {
-            Quat::from_mat3(&Mat3::from_cols(right, normal, projected_forward))
-        } else {
-            yaw_quat
-        }
-    } else {
-        yaw_quat
+fn apply_car_forces(
+    input: Res<CarInput>,
+    params: Res<CarParams>,
+    mut query: Query<(Forces, &Rotation, &LinearVelocity), With<PlayerCar>>,
+) {
+    let Ok((mut forces, rotation, linear_velocity)) = query.single_mut() else {
+        return;
+    };
+
+    let forward = rotation.0 * Vec3::NEG_Z;
+    let right = rotation.0 * Vec3::X;
+    let velocity = linear_velocity.0;
+    let speed = velocity.length();
+    let forward_speed = velocity.dot(forward);
+    let lateral_speed = velocity.dot(right);
+
+    let boost_multiplier = if input.boosting { 1.4 } else { 1.0 };
+    let engine_force = input.throttle * params.engine_force * boost_multiplier;
+    forces.apply_force(forward * engine_force);
+
+    if input.braking && speed > 0.5 {
+        let brake_force = -velocity.normalize_or_zero() * params.brake_force;
+        forces.apply_force(brake_force);
     }
+
+    let lateral_force = (-lateral_speed * params.lateral_grip)
+        .clamp(-params.max_lateral_force, params.max_lateral_force);
+    forces.apply_force(right * lateral_force);
+
+    let rolling_resistance = -velocity * params.rolling_resistance;
+    let drag = -velocity * speed * params.drag;
+    forces.apply_force(rolling_resistance + drag);
+
+    let steer_strength = (forward_speed.abs() / params.max_speed).clamp(0.2, 1.0);
+    let steer_torque = input.steer * params.steer_torque * steer_strength;
+    forces.apply_torque(Vec3::Y * steer_torque);
+
+    let downforce = params.downforce * speed * speed;
+    if downforce > 0.0 {
+        forces.apply_force(Vec3::NEG_Y * downforce);
+    }
+}
+
+fn sync_car_state(
+    time: Res<Time>,
+    input: Res<CarInput>,
+    mut car_state: ResMut<CarState>,
+    mut car_query: Query<(
+        &LinearVelocity,
+        &AngularVelocity,
+        &Rotation,
+        &Position,
+        &mut Car,
+    ), With<PlayerCar>>,
+) {
+    let Ok((linear_velocity, angular_velocity, rotation, position, mut car)) = car_query.single_mut()
+    else {
+        return;
+    };
+
+    let forward = rotation.0 * Vec3::NEG_Z;
+    let right = rotation.0 * Vec3::X;
+    let velocity = linear_velocity.0;
+    let forward_speed = velocity.dot(forward);
+    let lateral_speed = velocity.dot(right);
+    let yaw_rate = angular_velocity.0.y;
+    let yaw = (-forward.x).atan2(-forward.z);
+    let dt = time.delta_secs().max(0.001);
+
+    car.speed = forward_speed;
+    car.yaw = yaw;
+
+    let speed_delta = (forward_speed - car_state.prev_speed).abs() / dt;
+    let drift_turn = lateral_speed.abs() > 3.5 && forward_speed.abs() > 6.0 && yaw_rate.abs() > 0.3;
+
+    car_state.skidding = (input.braking && forward_speed.abs() > 8.0)
+        || (input.throttle == 0.0 && forward_speed.abs() > 35.0)
+        || (speed_delta > 18.0 && forward_speed.abs() > 8.0)
+        || drift_turn;
+    car_state.prev_speed = forward_speed;
+    car_state.speed = forward_speed;
+    car_state.yaw = yaw;
+    car_state.braking = input.braking;
+    car_state.boosting = input.boosting;
+    car_state.position = position.0;
 }
 
 fn camera_follow(
@@ -419,8 +398,9 @@ fn animate_wheels(
         0.0
     };
 
-    let effective_steer = steer_input * params.steer_rate * (1.0 - (car.speed / params.max_speed).abs() * 0.5);
-    wheel_state.target_angle = effective_steer * 0.3;
+    let speed_factor = (car.speed / params.max_speed).abs().clamp(0.0, 1.0);
+    let effective_steer = steer_input * (1.0 - speed_factor * 0.4);
+    wheel_state.target_angle = effective_steer * 0.45;
     let smoothing = 1.0 - (-8.0 * dt).exp();
     wheel_state.current_angle += (wheel_state.target_angle - wheel_state.current_angle) * smoothing;
 
@@ -437,12 +417,12 @@ fn animate_wheels(
 fn record_telemetry(
     mut telemetry: ResMut<Telemetry>,
     wheel_state: Res<WheelState>,
-    car_query: Query<&Car, With<PlayerCar>>,
+    car_query: Query<(&Car, &AngularVelocity), With<PlayerCar>>,
 ) {
-    let Ok(car) = car_query.single() else {
+    let Ok((car, angular_velocity)) = car_query.single() else {
         return;
     };
-    let yaw_rate = car.yaw;
+    let yaw_rate = angular_velocity.0.y;
     telemetry.record(car.speed, wheel_state.current_angle, yaw_rate);
 }
 

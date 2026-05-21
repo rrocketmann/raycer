@@ -4,6 +4,7 @@ use bevy_camera::RenderTarget;
 use bevy_egui::PrimaryEguiContext;
 use avian3d::prelude::*;
 use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight};
+use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::car::{Car, CarCamera, CarVisual, MinimapCamera, PlayerCar};
 
@@ -44,25 +45,28 @@ fn spawn_world(
     mut images: ResMut<Assets<Image>>,
 ) {
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
-    commands.spawn((
+    let mut car_entity = commands.spawn((
         SceneRoot(car_scene),
-        Transform::from_xyz(0.0, 0.0, 0.0),
+        Transform::from_xyz(0.0, 1.0, 2.0),
         Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
         CarVisual,
-        RigidBody::Kinematic,
-        Position(Vec3::ZERO),
+    ));
+    car_entity.insert((
+        RigidBody::Dynamic,
+        Position(Vec3::new(0.0, 1.0, 2.0)),
         Rotation::default(),
+        LinearVelocity::ZERO,
+        AngularVelocity::ZERO,
+        LinearDamping(0.6),
+        AngularDamping(1.2),
+        MaxLinearSpeed(90.0),
+        MaxAngularSpeed(6.0),
+        Friction::new(1.1),
         Collider::capsule(0.5, 1.0),
     ));
 
-    let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
-    commands.spawn((
-        SceneRoot(map_scene),
-        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(50.0)),
-        RigidBody::Static,
-        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
-    ));
+    spawn_debug_course(&mut commands, &asset_server);
 
     commands.spawn((
         DirectionalLight {
@@ -98,6 +102,101 @@ fn spawn_world(
         brightness: 120.0,
         affects_lightmapped_meshes: true,
     });
+}
+
+fn spawn_debug_course(commands: &mut Commands, asset_server: &AssetServer) {
+    const TILE: f32 = 8.0;
+    const STRAIGHTS: i32 = 6;
+    let straight = "models/roadStraight.glb";
+    let corner = "models/roadCornerSmallSquare.glb";
+    let start = "models/roadStart.glb";
+
+    spawn_track_piece(
+        commands,
+        asset_server,
+        start,
+        Transform::from_xyz(0.0, 0.0, 0.0),
+    );
+
+    for i in 1..=STRAIGHTS {
+        spawn_track_piece(
+            commands,
+            asset_server,
+            straight,
+            Transform::from_xyz(0.0, 0.0, -(TILE * i as f32)),
+        );
+    }
+
+    spawn_track_piece(
+        commands,
+        asset_server,
+        corner,
+        Transform::from_xyz(0.0, 0.0, -(TILE * (STRAIGHTS + 1) as f32))
+            .with_rotation(Quat::from_rotation_y(-FRAC_PI_2)),
+    );
+
+    for i in 1..=STRAIGHTS {
+        spawn_track_piece(
+            commands,
+            asset_server,
+            straight,
+            Transform::from_xyz(TILE * i as f32, 0.0, -(TILE * (STRAIGHTS + 1) as f32))
+                .with_rotation(Quat::from_rotation_y(-FRAC_PI_2)),
+        );
+    }
+
+    spawn_track_piece(
+        commands,
+        asset_server,
+        corner,
+        Transform::from_xyz(TILE * (STRAIGHTS + 1) as f32, 0.0, -(TILE * (STRAIGHTS + 1) as f32))
+            .with_rotation(Quat::from_rotation_y(PI)),
+    );
+
+    for i in 1..=STRAIGHTS {
+        spawn_track_piece(
+            commands,
+            asset_server,
+            straight,
+            Transform::from_xyz(TILE * (STRAIGHTS + 1) as f32, 0.0, -(TILE * (STRAIGHTS + 1) as f32) + TILE * i as f32)
+                .with_rotation(Quat::from_rotation_y(PI)),
+        );
+    }
+
+    spawn_track_piece(
+        commands,
+        asset_server,
+        corner,
+        Transform::from_xyz(TILE * (STRAIGHTS + 1) as f32, 0.0, 0.0)
+            .with_rotation(Quat::from_rotation_y(FRAC_PI_2)),
+    );
+
+    for i in 1..=STRAIGHTS {
+        spawn_track_piece(
+            commands,
+            asset_server,
+            straight,
+            Transform::from_xyz(TILE * (STRAIGHTS + 1) as f32 - TILE * i as f32, 0.0, 0.0)
+                .with_rotation(Quat::from_rotation_y(FRAC_PI_2)),
+        );
+    }
+
+}
+
+fn spawn_track_piece(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    asset: &'static str,
+    transform: Transform,
+) {
+    let scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(asset));
+    commands.spawn((
+        SceneRoot(scene),
+        transform,
+        RigidBody::Static,
+        Friction::new(1.2),
+        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
+    ));
 }
 
 fn update_minimap_camera(
