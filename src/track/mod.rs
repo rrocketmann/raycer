@@ -1,10 +1,8 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureFormat, TextureUsages};
 use bevy_camera::RenderTarget;
-use bevy_egui::PrimaryEguiContext;
 use avian3d::prelude::*;
 use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight};
-use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::car::{Car, CarCamera, CarVisual, MinimapCamera, PlayerCar};
 
@@ -45,28 +43,26 @@ fn spawn_world(
     mut images: ResMut<Assets<Image>>,
 ) {
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
-    let mut car_entity = commands.spawn((
+    let _entity = commands.spawn((
         SceneRoot(car_scene),
-        Transform::from_xyz(0.0, 1.0, 2.0),
+        Transform::from_xyz(0.0, 3.0, 0.0),
         Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
         CarVisual,
-    ));
-    car_entity.insert((
-        RigidBody::Dynamic,
-        Position(Vec3::new(0.0, 1.0, 2.0)),
+        RigidBody::Kinematic,
+        Position(Vec3::new(0.0, 3.0, 0.0)),
         Rotation::default(),
-        LinearVelocity::ZERO,
-        AngularVelocity::ZERO,
-        LinearDamping(0.6),
-        AngularDamping(1.2),
-        MaxLinearSpeed(90.0),
-        MaxAngularSpeed(6.0),
-        Friction::new(1.1),
-        Collider::capsule(0.5, 1.0),
+        ColliderConstructorHierarchy::new(ColliderConstructor::ConvexDecompositionFromMesh),
+        SweptCcd::NON_LINEAR,
     ));
 
-    spawn_debug_course(&mut commands, &asset_server);
+    let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
+    commands.spawn((
+        SceneRoot(map_scene),
+        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(50.0)),
+        RigidBody::Static,
+        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
+    ));
 
     commands.spawn((
         DirectionalLight {
@@ -85,14 +81,13 @@ fn spawn_world(
         Camera3d::default(),
         Transform::from_xyz(0.0, 8.0, -15.0).looking_at(Vec3::ZERO, Vec3::Y),
         CarCamera,
-        PrimaryEguiContext,
     ));
 
     let minimap_image = images.add(create_minimap_image(256, 256));
     commands.spawn((
         Camera3d::default(),
         RenderTarget::Image(minimap_image.clone().into()),
-        Transform::from_xyz(0.0, 500.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 80.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
         MinimapCamera,
     ));
     commands.insert_resource(MinimapImage(minimap_image));
@@ -104,112 +99,16 @@ fn spawn_world(
     });
 }
 
-fn spawn_debug_course(commands: &mut Commands, asset_server: &AssetServer) {
-    const TILE: f32 = 8.0;
-    const STRAIGHTS: i32 = 6;
-    let straight = "models/roadStraight.glb";
-    let corner = "models/roadCornerSmallSquare.glb";
-    let start = "models/roadStart.glb";
-
-    spawn_track_piece(
-        commands,
-        asset_server,
-        start,
-        Transform::from_xyz(0.0, 0.0, 0.0),
-    );
-
-    for i in 1..=STRAIGHTS {
-        spawn_track_piece(
-            commands,
-            asset_server,
-            straight,
-            Transform::from_xyz(0.0, 0.0, -(TILE * i as f32)),
-        );
-    }
-
-    spawn_track_piece(
-        commands,
-        asset_server,
-        corner,
-        Transform::from_xyz(0.0, 0.0, -(TILE * (STRAIGHTS + 1) as f32))
-            .with_rotation(Quat::from_rotation_y(-FRAC_PI_2)),
-    );
-
-    for i in 1..=STRAIGHTS {
-        spawn_track_piece(
-            commands,
-            asset_server,
-            straight,
-            Transform::from_xyz(TILE * i as f32, 0.0, -(TILE * (STRAIGHTS + 1) as f32))
-                .with_rotation(Quat::from_rotation_y(-FRAC_PI_2)),
-        );
-    }
-
-    spawn_track_piece(
-        commands,
-        asset_server,
-        corner,
-        Transform::from_xyz(TILE * (STRAIGHTS + 1) as f32, 0.0, -(TILE * (STRAIGHTS + 1) as f32))
-            .with_rotation(Quat::from_rotation_y(PI)),
-    );
-
-    for i in 1..=STRAIGHTS {
-        spawn_track_piece(
-            commands,
-            asset_server,
-            straight,
-            Transform::from_xyz(TILE * (STRAIGHTS + 1) as f32, 0.0, -(TILE * (STRAIGHTS + 1) as f32) + TILE * i as f32)
-                .with_rotation(Quat::from_rotation_y(PI)),
-        );
-    }
-
-    spawn_track_piece(
-        commands,
-        asset_server,
-        corner,
-        Transform::from_xyz(TILE * (STRAIGHTS + 1) as f32, 0.0, 0.0)
-            .with_rotation(Quat::from_rotation_y(FRAC_PI_2)),
-    );
-
-    for i in 1..=STRAIGHTS {
-        spawn_track_piece(
-            commands,
-            asset_server,
-            straight,
-            Transform::from_xyz(TILE * (STRAIGHTS + 1) as f32 - TILE * i as f32, 0.0, 0.0)
-                .with_rotation(Quat::from_rotation_y(FRAC_PI_2)),
-        );
-    }
-
-}
-
-fn spawn_track_piece(
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    asset: &'static str,
-    transform: Transform,
-) {
-    let scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(asset));
-    commands.spawn((
-        SceneRoot(scene),
-        transform,
-        RigidBody::Static,
-        Friction::new(1.2),
-        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
-    ));
-}
-
 fn update_minimap_camera(
-    car_query: Query<&Car, With<PlayerCar>>,
+    car_query: Query<(&Car, &Position), With<PlayerCar>>,
     mut minimap_cam: Query<&mut Transform, (With<MinimapCamera>, Without<PlayerCar>)>,
-    car_position: Query<&Position, With<PlayerCar>>,
 ) {
-    let Ok(_car) = car_query.single() else { return };
-    let Ok(car_pos) = car_position.single() else { return };
+    let Ok((car, car_pos)) = car_query.single() else { return };
+    let up = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
     for mut cam in minimap_cam.iter_mut() {
         cam.translation.x = car_pos.0.x;
         cam.translation.z = car_pos.0.z;
-        cam.translation.y = 80.0;
-        cam.look_at(car_pos.0, Vec3::Y);
+        cam.translation.y = 40.0;
+        cam.look_at(car_pos.0, up);
     }
 }

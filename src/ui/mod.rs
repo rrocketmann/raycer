@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::car::{Car, CarState, PlayerCar};
-use crate::car::Telemetry;
+use crate::car::{CarInput, CarState, Telemetry};
 use crate::track::MinimapImage;
 
 pub struct UiPlugin;
@@ -16,9 +15,8 @@ impl Plugin for UiPlugin {
 fn egui_panel(
     mut contexts: EguiContexts,
     telemetry: Res<Telemetry>,
-    _car_state: Res<CarState>,
-    _car_query: Query<&Car, With<PlayerCar>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    car_input: Res<CarInput>,
+    car_state: Res<CarState>,
     minimap_image: Res<MinimapImage>,
 ) {
     let minimap_tex = {
@@ -31,12 +29,10 @@ fn egui_panel(
         Err(_) => return,
     };
 
-    let w = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
-    let a = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
-    let s = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown);
-    let d = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
-    let sp = keys.pressed(KeyCode::Space);
-    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let boosting = car_input.boosting;
+    let braking = car_input.braking;
+    let throttle = car_input.throttle;
+    let steer = car_input.steer;
 
     egui::SidePanel::right("telemetry")
         .min_width(220.0)
@@ -47,8 +43,11 @@ fn egui_panel(
             ui.add_space(2.0);
             let speed_kmh = telemetry.speed_history.last().copied().unwrap_or(0.0) * 3.6;
             ui.label(format!("{:.0} km/h", speed_kmh));
-            if shift {
+            if boosting {
                 ui.colored_label(egui::Color32::from_rgb(255, 100, 100), "BOOST");
+            }
+            if car_state.skidding {
+                ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "SKID");
             }
             ui.add_space(2.0);
             let (speed_min, speed_max) = telemetry.speed_history.iter()
@@ -94,19 +93,19 @@ fn egui_panel(
                 ui.spacing_mut().item_spacing = egui::vec2(key_spacing, key_spacing);
                 ui.horizontal(|ui| {
                     ui.add_space(w_indent);
-                    draw_key(ui, "W", w, key_width);
+                    draw_key(ui, "W", throttle > 0.0, key_width);
                 });
                 ui.horizontal(|ui| {
                     ui.add_space(row_indent);
-                    draw_key(ui, "A", a, key_width);
-                    draw_key(ui, "S", s, key_width);
-                    draw_key(ui, "D", d, key_width);
+                    draw_key(ui, "A", steer > 0.0, key_width);
+                    draw_key(ui, "S", throttle < 0.0, key_width);
+                    draw_key(ui, "D", steer < 0.0, key_width);
                 });
                 ui.horizontal(|ui| {
-                    draw_key(ui, "Shift", shift, shift_width);
+                    draw_key(ui, "Shift", boosting, shift_width);
                 });
                 ui.horizontal(|ui| {
-                    draw_key(ui, "Space", sp, space_width);
+                    draw_key(ui, "Space", braking, space_width);
                 });
             });
         });

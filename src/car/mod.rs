@@ -10,28 +10,22 @@ impl Plugin for CarPlugin {
             .init_resource::<WheelState>()
             .init_resource::<CarState>()
             .init_resource::<CarInput>()
-            .init_resource::<SkidOffsets>()
             .init_resource::<GroundInfo>()
-            .add_systems(Startup, setup_skid_assets)
-            .add_systems(
-                FixedPostUpdate,
-                apply_car_forces.in_set(PhysicsSystems::Prepare),
-            )
-            .add_systems(
-                FixedPostUpdate,
-                sync_car_state.in_set(PhysicsSystems::Last),
-            )
+            .init_resource::<CarColliderEntities>()
+            .add_systems(PreUpdate, (
+                collect_car_colliders,
+                ground_raycast,
+                car_movement,
+            ).chain())
             .add_systems(
                 Update,
                 (
                     capture_input,
-                    ground_raycast,
                     camera_follow,
                     label_wheels,
                     animate_wheels,
                     record_telemetry,
-                    spawn_skid_marks,
-                    fade_skid_marks,
+                    debug_log,
                 ),
             );
     }
@@ -70,13 +64,16 @@ pub struct WheelRearRight;
 #[derive(Component)]
 pub struct WheelsLabeled;
 
-pub const GROUND_RAY_DISTANCE: f32 = 100.0;
+const GROUND_RAY_DISTANCE: f32 = 100.0;
+const CAR_GROUND_OFFSET: f32 = 0.02;
+const SLOPE_ACCEL_FACTOR: f32 = 30.0;
 
 #[derive(Resource, Default)]
 pub struct GroundInfo {
     pub y: f32,
     pub normal: Vec3,
 }
+
 #[derive(Resource, Default)]
 pub struct CarInput {
     pub throttle: f32,
@@ -119,29 +116,21 @@ impl Telemetry {
 
 #[derive(Resource)]
 pub struct CarParams {
-    pub engine_force: f32,
+    pub acceleration: f32,
     pub max_speed: f32,
+    pub friction: f32,
     pub brake_force: f32,
-    pub steer_torque: f32,
-    pub lateral_grip: f32,
-    pub max_lateral_force: f32,
-    pub rolling_resistance: f32,
-    pub drag: f32,
-    pub downforce: f32,
+    pub steer_rate: f32,
 }
 
 impl Default for CarParams {
     fn default() -> Self {
         Self {
-            engine_force: 4200.0,
+            acceleration: 60.0,
             max_speed: 80.0,
-            brake_force: 5200.0,
-            steer_torque: 2200.0,
-            lateral_grip: 120.0,
-            max_lateral_force: 4200.0,
-            rolling_resistance: 12.0,
-            drag: 0.35,
-            downforce: 2.5,
+            friction: 0.3,
+            brake_force: 45.0,
+            steer_rate: 2.5,
         }
     }
 }
@@ -158,56 +147,41 @@ pub struct CarState {
     pub yaw: f32,
     pub position: Vec3,
     pub braking: bool,
-    pub skidding: bool,
     pub boosting: bool,
+    pub skidding: bool,
     pub prev_speed: f32,
 }
 
-#[derive(Component)]
-pub struct SkidMark {
-    pub timer: Timer,
-}
+#[derive(Resource, Default)]
+pub struct CarColliderEntities(pub Vec<Entity>);
 
-#[derive(Resource)]
-pub struct SkidMarkAssets {
-    pub mesh: Handle<Mesh>,
-}
-
-#[derive(Resource)]
-pub struct SkidOffsets {
-    pub left: f32,
-    pub right: f32,
-}
-
-impl Default for SkidOffsets {
-    fn default() -> Self {
-        Self { left: -0.07, right: -0.62 }
+fn collect_car_colliders(
+    car_query: Query<Entity, With<PlayerCar>>,
+    children_query: Query<&Children>,
+    mut colliders: ResMut<CarColliderEntities>,
+) {
+    // Skip if already fully populated (car entity + at least child entity found)
+    if colliders.0.len() > 1 {
+        return;
+    }
+    let Ok(car_entity) = car_query.single() else {
+        return;
+    };
+    let old_len = colliders.0.len();
+    let mut all = vec![car_entity];
+    collect_descendants(&children_query, car_entity, &mut all);
+    colliders.0 = all;
+    // Only log on first successful collection (when children were found)
+    if colliders.0.len() > 1 && old_len <= 1 {
+        info!("car collider entities collected: {} total", colliders.0.len());
     }
 }
 
-fn ground_raycast(
-    spatial_query: SpatialQuery,
-    car_query: Query<(Entity, &Position), With<PlayerCar>>,
-    mut ground_info: ResMut<GroundInfo>,
-) {
-    let Ok((car_entity, car_pos)) = car_query.single() else { return };
-    let ray_origin = car_pos.0 + Vec3::new(0.0, GROUND_RAY_DISTANCE, 0.0);
-    let filter = SpatialQueryFilter::from_excluded_entities([car_entity]);
-    let ground_hit = spatial_query.cast_ray(
-        ray_origin,
-        Dir3::NEG_Y,
-        GROUND_RAY_DISTANCE * 2.0,
-        true,
-        &filter,
-    );
-    match ground_hit {
-        Some(hit) => {
-            ground_info.y = ray_origin.y - hit.distance;
-            ground_info.normal = hit.normal;
-        }
-        None => {
-            ground_info.y = 0.0;
-            ground_info.normal = Vec3::Y;
+fn collect_descendants(children_query: &Query<&Children>, entity: Entity, out: &mut Vec<Entity>) {
+    if let Ok(children) = children_query.get(entity) {
+        for child in children.iter() {
+            out.push(child);
+            collect_descendants(children_query, child, out);
         }
     }
 }
@@ -233,91 +207,125 @@ fn capture_input(keys: Res<ButtonInput<KeyCode>>, mut input: ResMut<CarInput>) {
     input.boosting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 }
 
-fn apply_car_forces(
-    input: Res<CarInput>,
-    params: Res<CarParams>,
-    mut query: Query<(Forces, &Rotation, &LinearVelocity), With<PlayerCar>>,
+fn ground_raycast(
+    spatial_query: SpatialQuery,
+    car_query: Query<(Entity, &Position), With<PlayerCar>>,
+    colliders: Res<CarColliderEntities>,
+    mut ground_info: ResMut<GroundInfo>,
 ) {
-    let Ok((mut forces, rotation, linear_velocity)) = query.single_mut() else {
+    let Ok((_car_entity, car_pos)) = car_query.single() else {
         return;
     };
-
-    let forward = rotation.0 * Vec3::NEG_Z;
-    let right = rotation.0 * Vec3::X;
-    let velocity = linear_velocity.0;
-    let speed = velocity.length();
-    let forward_speed = velocity.dot(forward);
-    let lateral_speed = velocity.dot(right);
-
-    let boost_multiplier = if input.boosting { 1.4 } else { 1.0 };
-    let engine_force = input.throttle * params.engine_force * boost_multiplier;
-    forces.apply_force(forward * engine_force);
-
-    if input.braking && speed > 0.5 {
-        let brake_force = -velocity.normalize_or_zero() * params.brake_force;
-        forces.apply_force(brake_force);
-    }
-
-    let lateral_force = (-lateral_speed * params.lateral_grip)
-        .clamp(-params.max_lateral_force, params.max_lateral_force);
-    forces.apply_force(right * lateral_force);
-
-    let rolling_resistance = -velocity * params.rolling_resistance;
-    let drag = -velocity * speed * params.drag;
-    forces.apply_force(rolling_resistance + drag);
-
-    let steer_strength = (forward_speed.abs() / params.max_speed).clamp(0.2, 1.0);
-    let steer_torque = input.steer * params.steer_torque * steer_strength;
-    forces.apply_torque(Vec3::Y * steer_torque);
-
-    let downforce = params.downforce * speed * speed;
-    if downforce > 0.0 {
-        forces.apply_force(Vec3::NEG_Y * downforce);
+    let ray_origin = car_pos.0 + Vec3::new(0.0, GROUND_RAY_DISTANCE, 0.0);
+    let filter = SpatialQueryFilter::from_excluded_entities(colliders.0.iter().copied());
+    let ground_hit = spatial_query.cast_ray(
+        ray_origin,
+        Dir3::NEG_Y,
+        GROUND_RAY_DISTANCE * 2.0,
+        true,
+        &filter,
+    );
+    match ground_hit {
+        Some(hit) => {
+            ground_info.y = ray_origin.y - hit.distance;
+            ground_info.normal = hit.normal;
+        }
+        None => {
+            ground_info.y = 0.0;
+            ground_info.normal = Vec3::Y;
+        }
     }
 }
 
-fn sync_car_state(
+fn car_movement(
     time: Res<Time>,
     input: Res<CarInput>,
+    params: Res<CarParams>,
+    ground_info: Res<GroundInfo>,
+    mut query: Query<(&mut Car, &mut Position, &mut Rotation), With<PlayerCar>>,
     mut car_state: ResMut<CarState>,
-    mut car_query: Query<(
-        &LinearVelocity,
-        &AngularVelocity,
-        &Rotation,
-        &Position,
-        &mut Car,
-    ), With<PlayerCar>>,
 ) {
-    let Ok((linear_velocity, angular_velocity, rotation, position, mut car)) = car_query.single_mut()
-    else {
+    let dt = time.delta_secs();
+    let Ok((mut car, mut position, mut rotation)) = query.single_mut() else {
         return;
     };
 
-    let forward = rotation.0 * Vec3::NEG_Z;
-    let right = rotation.0 * Vec3::X;
-    let velocity = linear_velocity.0;
-    let forward_speed = velocity.dot(forward);
-    let lateral_speed = velocity.dot(right);
-    let yaw_rate = angular_velocity.0.y;
-    let yaw = (-forward.x).atan2(-forward.z);
-    let dt = time.delta_secs().max(0.001);
+    let boost_multiplier = if input.boosting { 1.5 } else { 1.0 };
+    let max_speed_boosted = params.max_speed * boost_multiplier;
+    let handbrake_turn = input.braking
+        && input.throttle > 0.0
+        && input.steer.abs() > 0.1
+        && car.speed > 5.0;
+    let handbrake_boost = if handbrake_turn { 1.4 } else { 1.0 };
+    let steer = input.steer
+        * params.steer_rate
+        * handbrake_boost
+        * (1.0 - (car.speed / max_speed_boosted).abs() * 0.5);
 
-    car.speed = forward_speed;
-    car.yaw = yaw;
+    if input.braking {
+        let mut brake_amount = params.brake_force * dt;
+        if handbrake_turn {
+            brake_amount *= 0.45;
+        }
+        if car.speed > 0.0 {
+            car.speed = (car.speed - brake_amount).max(0.0);
+        } else if car.speed < 0.0 {
+            car.speed = (car.speed + brake_amount).min(0.0);
+        }
+    } else {
+        let accel = input.throttle * params.acceleration * boost_multiplier;
+        car.speed += (accel - car.speed * params.friction) * dt;
+    }
 
-    let speed_delta = (forward_speed - car_state.prev_speed).abs() / dt;
-    let drift_turn = lateral_speed.abs() > 3.5 && forward_speed.abs() > 6.0 && yaw_rate.abs() > 0.3;
+    let steer_friction = if input.braking {
+        steer.abs() * car.speed.abs() * 0.02
+    } else {
+        steer.abs() * car.speed.abs() * 0.10
+    };
+    car.speed -= car.speed.signum() * steer_friction * dt;
 
-    car_state.skidding = (input.braking && forward_speed.abs() > 8.0)
-        || (input.throttle == 0.0 && forward_speed.abs() > 35.0)
-        || (speed_delta > 18.0 && forward_speed.abs() > 8.0)
-        || drift_turn;
-    car_state.prev_speed = forward_speed;
-    car_state.speed = forward_speed;
-    car_state.yaw = yaw;
+    let slope_forward = -(ground_info.normal.x * car.yaw.sin() + ground_info.normal.z * car.yaw.cos());
+    car.speed += slope_forward * SLOPE_ACCEL_FACTOR * dt;
+
+    car.speed = car.speed.clamp(-params.max_speed * 0.3, max_speed_boosted);
+    car.yaw += steer * dt * (car.speed / 30.0).clamp(-1.0, 1.0);
+
+    let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
+    position.0 += forward * car.speed * dt;
+
+    let target_y = ground_info.y + CAR_GROUND_OFFSET;
+    position.0.y = target_y;
+
+    let yaw_quat = Quat::from_rotation_y(car.yaw);
+    *rotation = Rotation::from(align_to_ground(yaw_quat, ground_info.normal));
+
+    let decel_rate = (car.speed / params.max_speed).abs() * params.friction;
+    let speed_delta = (car.speed - car_state.prev_speed).abs() / dt.max(0.001);
+    car_state.skidding = handbrake_turn
+        || (input.braking && car.speed.abs() > 10.0)
+        || (input.throttle == 0.0 && car.speed.abs() > 40.0 && decel_rate > 1.5)
+        || (speed_delta > 25.0 && car.speed.abs() > 10.0);
+    car_state.prev_speed = car.speed;
+    car_state.speed = car.speed;
+    car_state.yaw = car.yaw;
     car_state.braking = input.braking;
     car_state.boosting = input.boosting;
     car_state.position = position.0;
+}
+
+fn align_to_ground(yaw_quat: Quat, normal: Vec3) -> Quat {
+    let n = normal.normalize_or_zero();
+    if n.length_squared() < 0.001 || n.dot(Vec3::Y) > 0.9999 {
+        return yaw_quat;
+    }
+    let forward = yaw_quat * Vec3::Z;
+    let right = n.cross(forward).normalize_or_zero();
+    if right.is_finite() && right.length_squared() > 0.001 {
+        let corrected_forward = right.cross(n);
+        Quat::from_mat3(&Mat3::from_cols(right, n, corrected_forward))
+    } else {
+        yaw_quat
+    }
 }
 
 fn camera_follow(
@@ -328,14 +336,12 @@ fn camera_follow(
         return;
     };
 
-    let car_pos = car_pos.0;
-    let forward = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
-    let behind = -forward * 10.0;
-    let target = car_pos + behind + Vec3::new(0.0, 5.0, 0.0);
+    let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
+    let target = car_pos.0 - forward * 8.0 + Vec3::new(0.0, 5.0, 0.0);
 
     for mut cam in cam_query.iter_mut() {
         cam.translation = cam.translation.lerp(target, 0.05);
-        cam.look_at(car_pos + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
+        cam.look_at(car_pos.0 + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
     }
 }
 
@@ -379,27 +385,21 @@ fn label_wheels(
 fn animate_wheels(
     time: Res<Time>,
     car_data: Query<&Car, With<PlayerCar>>,
-    params: Res<CarParams>,
-    keys: Res<ButtonInput<KeyCode>>,
+    input: Res<CarInput>,
+    car_state: Res<CarState>,
     mut wheel_state: ResMut<WheelState>,
     mut front_left: Query<&mut Transform, (With<WheelFrontLeft>, Without<WheelFrontRight>, Without<WheelRearLeft>, Without<WheelRearRight>, Without<PlayerCar>)>,
     mut front_right: Query<&mut Transform, (With<WheelFrontRight>, Without<WheelFrontLeft>, Without<WheelRearLeft>, Without<WheelRearRight>, Without<PlayerCar>)>,
+    _rear_left: Query<&mut Transform, (With<WheelRearLeft>, Without<WheelFrontLeft>, Without<WheelFrontRight>, Without<WheelRearRight>, Without<PlayerCar>)>,
+    _rear_right: Query<&mut Transform, (With<WheelRearRight>, Without<WheelFrontLeft>, Without<WheelFrontRight>, Without<WheelRearLeft>, Without<PlayerCar>)>,
 ) {
-    let Some(car) = car_data.iter().next() else {
+    let Some(_car) = car_data.iter().next() else {
         return;
     };
     let dt = time.delta_secs();
 
-    let steer_input = if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
-        1.0
-    } else if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
-        -1.0
-    } else {
-        0.0
-    };
-
-    let speed_factor = (car.speed / params.max_speed).abs().clamp(0.0, 1.0);
-    let effective_steer = steer_input * (1.0 - speed_factor * 0.4);
+    let skid_mult = if car_state.skidding { 0.4 } else { 1.0 };
+    let effective_steer = input.steer * skid_mult * (1.0 - (car_state.speed / 30.0).abs().clamp(0.0, 1.0) * 0.5);
     wheel_state.target_angle = effective_steer * 0.45;
     let smoothing = 1.0 - (-8.0 * dt).exp();
     wheel_state.current_angle += (wheel_state.target_angle - wheel_state.current_angle) * smoothing;
@@ -417,121 +417,37 @@ fn animate_wheels(
 fn record_telemetry(
     mut telemetry: ResMut<Telemetry>,
     wheel_state: Res<WheelState>,
-    car_query: Query<(&Car, &AngularVelocity), With<PlayerCar>>,
+    car_query: Query<&Car, With<PlayerCar>>,
 ) {
-    let Ok((car, angular_velocity)) = car_query.single() else {
+    let Ok(car) = car_query.single() else {
         return;
     };
-    let yaw_rate = angular_velocity.0.y;
-    telemetry.record(car.speed, wheel_state.current_angle, yaw_rate);
+    telemetry.record(car.speed, wheel_state.current_angle, car.yaw);
 }
 
-fn setup_skid_assets(
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut commands: Commands,
-) {
-    let mesh = meshes.add(Rectangle::new(0.35, 0.9));
-    commands.insert_resource(SkidMarkAssets { mesh });
-}
-
-fn spawn_skid_marks(
+fn debug_log(
+    mut frame: Local<u32>,
+    input: Res<CarInput>,
     car_state: Res<CarState>,
-    params: Res<CarParams>,
-    ground_info: Res<GroundInfo>,
-    skid_assets: Res<SkidMarkAssets>,
-    skid_offsets: Res<SkidOffsets>,
-    skid_count: Query<(), With<SkidMark>>,
-    mut commands: Commands,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut last_spawn: Local<Option<Vec3>>,
-    mut last_position: Local<Option<Vec3>>,
-    mut distance_accum: Local<f32>,
+    car_query: Query<(&Position, &Rotation, &Car), With<PlayerCar>>,
 ) {
-    if !car_state.skidding || car_state.speed.abs() < 10.0 {
-        *last_spawn = None;
-        *last_position = None;
-        *distance_accum = 0.0;
+    *frame += 1;
+    if *frame % 30 != 0 {
         return;
     }
-
-    let mut remaining = 600 - skid_count.iter().count();
-    if remaining < 2 {
+    use std::f32::consts::PI;
+    let Ok((pos, rot, car)) = car_query.single() else {
         return;
-    }
-
-    let speed_ratio = (car_state.speed.abs() / params.max_speed).clamp(0.0, 1.0);
-    let spacing = (0.18 - 0.12 * speed_ratio).max(0.06);
-    let last_pos = match *last_position {
-        Some(pos) => pos,
-        None => {
-            *last_spawn = Some(car_state.position);
-            *last_position = Some(car_state.position);
-            *distance_accum = 0.0;
-            return;
-        }
     };
-    let delta = car_state.position - last_pos;
-    let dist = delta.length();
-    *last_position = Some(car_state.position);
-    if dist <= f32::EPSILON {
-        return;
-    }
-    let dir = delta / dist;
-    *distance_accum += dist;
-    let mut spawn_pos = last_spawn.unwrap_or(last_pos);
-
-    let speed_ratio = ((car_state.speed.abs() - 15.0) / 80.0).min(1.0);
-    let base_alpha = 0.4 + 0.4 * speed_ratio;
-
-    let forward = Vec3::new(-car_state.yaw.sin(), 0.0, -car_state.yaw.cos());
-    let right = Vec3::new(-car_state.yaw.cos(), 0.0, car_state.yaw.sin());
-    let yaw_quat = Quat::from_rotation_y(car_state.yaw);
-    let normal = ground_info.normal;
-    let surface_align = Quat::from_rotation_arc(Vec3::Y, normal);
-    let rotation = surface_align * yaw_quat * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    let skid_y = ground_info.y + 0.02;
-
-    while *distance_accum >= spacing && remaining >= 2 {
-        spawn_pos += dir * spacing;
-        *distance_accum -= spacing;
-        *last_spawn = Some(spawn_pos);
-        remaining -= 2;
-
-        for lateral in [skid_offsets.left, skid_offsets.right] {
-            let pos = spawn_pos - forward * 1.0 + right * lateral;
-            let pos = Vec3::new(pos.x, skid_y, pos.z);
-
-            commands.spawn((
-                Mesh3d(skid_assets.mesh.clone()),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgba(0.08, 0.08, 0.08, base_alpha),
-                    alpha_mode: AlphaMode::Blend,
-                    unlit: true,
-                    ..default()
-                })),
-                Transform::from_translation(pos).with_rotation(rotation),
-                SkidMark {
-                    timer: Timer::from_seconds(2.0, TimerMode::Once),
-                },
-            ));
-        }
-    }
-}
-
-fn fade_skid_marks(
-    time: Res<Time>,
-    mut commands: Commands,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut query: Query<(Entity, &mut SkidMark, &MeshMaterial3d<StandardMaterial>)>,
-) {
-    for (entity, mut skid, mat) in query.iter_mut() {
-        skid.timer.tick(time.delta());
-        let ratio = skid.timer.fraction();
-        if let Some(material) = materials.get_mut(&mat.0) {
-            material.base_color.set_alpha((1.0 - ratio) * 0.8);
-        }
-        if skid.timer.is_finished() {
-            commands.entity(entity).despawn();
-        }
-    }
+    let (roll, yaw, pitch) = rot.0.to_euler(EulerRot::ZYX);
+    info!(
+        "\n─── frame={} ───\n\
+         input: t={:.2} s={:.2} brake={} boost={}\n\
+         pos: ({:.2}, {:.2}, {:.2})  yaw={:.1}° pitch={:.1}° roll={:.1}°\n\
+         speed={:.1}  skid={}",
+        *frame,
+        input.throttle, input.steer, input.braking, input.boosting,
+        pos.0.x, pos.0.y, pos.0.z, yaw * 180.0 / PI, pitch * 180.0 / PI, roll * 180.0 / PI,
+        car.speed, car_state.skidding,
+    );
 }
