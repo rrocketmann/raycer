@@ -133,8 +133,11 @@ pub struct CarParams {
     pub rolling_resistance: f32,
     pub drag: f32,
     pub downforce: f32,
+    #[allow(dead_code)]
     pub suspension_stiffness: f32,
+    #[allow(dead_code)]
     pub suspension_damping: f32,
+    #[allow(dead_code)]
     pub suspension_rest_length: f32,
 }
 
@@ -299,14 +302,7 @@ fn apply_car_forces(
             susp.compressions[i] = compression;
             susp.ray_hit_positions[i] = Some(hit_pos);
             susp.hit_dir_signs[i] = ray_dir.dot(up).signum();
-            let wheel_vel = forces.velocity_at_point(wheel_world);
-            let push_dir = (hit_pos - wheel_world).normalize_or_zero();
-            let damper_vel = wheel_vel.dot(-push_dir);
-            let suspension_force = params.suspension_damping * damper_vel.max(0.0);
-            susp.forces[i] = suspension_force;
-            if suspension_force > 0.0 {
-                forces.apply_force_at_point(push_dir * suspension_force, wheel_world);
-            }
+            // No suspension force — raycasts are for ground-contact detection only
         }
     }
     *suspension_state = susp;
@@ -399,12 +395,12 @@ fn animate_wheels(
     car_data: Query<&Car, With<PlayerCar>>,
     input: Res<CarInput>,
     car_state: Res<CarState>,
-    susp: Res<SuspensionState>,
+    _susp: Res<SuspensionState>,
     mut wheel_state: ResMut<WheelState>,
     mut front_left: Query<&mut Transform, (With<WheelFrontLeft>, Without<WheelFrontRight>, Without<WheelRearLeft>, Without<WheelRearRight>, Without<PlayerCar>)>,
     mut front_right: Query<&mut Transform, (With<WheelFrontRight>, Without<WheelFrontLeft>, Without<WheelRearLeft>, Without<WheelRearRight>, Without<PlayerCar>)>,
-    mut rear_left: Query<&mut Transform, (With<WheelRearLeft>, Without<WheelFrontLeft>, Without<WheelFrontRight>, Without<WheelRearRight>, Without<PlayerCar>)>,
-    mut rear_right: Query<&mut Transform, (With<WheelRearRight>, Without<WheelFrontLeft>, Without<WheelFrontRight>, Without<WheelRearLeft>, Without<PlayerCar>)>,
+    _rear_left: Query<&mut Transform, (With<WheelRearLeft>, Without<WheelFrontLeft>, Without<WheelFrontRight>, Without<WheelRearRight>, Without<PlayerCar>)>,
+    _rear_right: Query<&mut Transform, (With<WheelRearRight>, Without<WheelFrontLeft>, Without<WheelFrontRight>, Without<WheelRearLeft>, Without<PlayerCar>)>,
 ) {
     let Some(_car) = car_data.iter().next() else {
         return;
@@ -419,20 +415,11 @@ fn animate_wheels(
 
     let steer_rot = Quat::from_rotation_y(wheel_state.current_angle);
 
-    const WHEEL_RADIUS: f32 = 0.25;
     for mut t in front_left.iter_mut() {
-        t.translation.y = -0.8 + WHEEL_RADIUS + susp.hit_dir_signs[0] * susp.hits[0].unwrap_or(1.2);
         t.rotation = steer_rot;
     }
     for mut t in front_right.iter_mut() {
-        t.translation.y = -0.8 + WHEEL_RADIUS + susp.hit_dir_signs[1] * susp.hits[1].unwrap_or(1.2);
         t.rotation = steer_rot;
-    }
-    for mut t in rear_left.iter_mut() {
-        t.translation.y = -0.8 + WHEEL_RADIUS + susp.hit_dir_signs[2] * susp.hits[2].unwrap_or(1.2);
-    }
-    for mut t in rear_right.iter_mut() {
-        t.translation.y = -0.8 + WHEEL_RADIUS + susp.hit_dir_signs[3] * susp.hits[3].unwrap_or(1.2);
     }
 }
 
