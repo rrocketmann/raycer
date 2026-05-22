@@ -57,14 +57,14 @@ fn spawn_world(
     ));
     entity.insert((
         LinearDamping(1.0),
-        AngularDamping(5.0),
+        AngularDamping(0.5),
         MaxLinearSpeed(30.0),
         MaxAngularSpeed(10.0),
         Friction::new(0.6),
         SweptCcd::NON_LINEAR,
         ColliderConstructorHierarchy::new(ColliderConstructor::ConvexDecompositionFromMesh),
         Mass(15.0),
-        CenterOfMass(Vec3::new(0.0, 0.0, -0.05)),
+        Collider::cuboid(0.8, 0.25, 1.6),
     ));
 
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
