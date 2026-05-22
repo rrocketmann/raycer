@@ -68,6 +68,7 @@ pub struct SuspensionState {
     pub forces: [f32; 4],
     pub ray_origins: [Vec3; 4],
     pub ray_hit_positions: [Option<Vec3>; 4],
+    pub hit_dir_signs: [f32; 4], // +1 = +up, -1 = -up
 }
 
 #[derive(Resource, Default)]
@@ -159,7 +160,6 @@ impl Default for CarParams {
 pub struct WheelState {
     pub current_angle: f32,
     pub target_angle: f32,
-    pub base_y: [f32; 4],
 }
 
 impl Default for WheelState {
@@ -167,7 +167,6 @@ impl Default for WheelState {
         Self {
             current_angle: 0.0,
             target_angle: 0.0,
-            base_y: [f32::MAX; 4],
         }
     }
 }
@@ -280,7 +279,7 @@ fn apply_car_forces(
     for (i, &(lx, ly, lz)) in WHEEL_OFFSETS.iter().enumerate() {
         let wheel_world = forces.position().0 + forces.rotation().0 * Vec3::new(lx, ly, lz);
         susp.ray_origins[i] = wheel_world;
-        let mut best: Option<(f32, f32, Vec3)> = None;
+        let mut best: Option<(f32, f32, Vec3, Vec3)> = None;
         for ray_dir in [-up, up] {
             if let Some(hit) = spatial_query.cast_ray(
                 wheel_world,
@@ -290,20 +289,20 @@ fn apply_car_forces(
                 &filter,
             ) {
                 let compression = params.suspension_rest_length - hit.distance;
-                if compression > 0.0 && best.map_or(true, |(best_comp, _, _)| compression > best_comp) {
-                    best = Some((compression, hit.distance, wheel_world + ray_dir * hit.distance));
+                if compression > 0.0 && best.map_or(true, |(best_comp, _, _, _)| compression > best_comp) {
+                    best = Some((compression, hit.distance, wheel_world + ray_dir * hit.distance, ray_dir));
                 }
             }
         }
-        if let Some((compression, dist, hit_pos)) = best {
+        if let Some((compression, dist, hit_pos, ray_dir)) = best {
             susp.hits[i] = Some(dist);
             susp.compressions[i] = compression;
             susp.ray_hit_positions[i] = Some(hit_pos);
-            let spring_force = params.suspension_stiffness * compression;
+            susp.hit_dir_signs[i] = ray_dir.dot(up).signum();
             let wheel_vel = forces.velocity_at_point(wheel_world);
             let push_dir = (hit_pos - wheel_world).normalize_or_zero();
             let damper_vel = wheel_vel.dot(-push_dir);
-            let suspension_force = spring_force + params.suspension_damping * damper_vel;
+            let suspension_force = params.suspension_damping * damper_vel.max(0.0);
             susp.forces[i] = suspension_force;
             if suspension_force > 0.0 {
                 forces.apply_force_at_point(push_dir * suspension_force, wheel_world);
@@ -422,18 +421,18 @@ fn animate_wheels(
 
     const WHEEL_RADIUS: f32 = 0.25;
     for mut t in front_left.iter_mut() {
-        t.translation.y = -0.8 + WHEEL_RADIUS - susp.hits[0].unwrap_or(1.2);
+        t.translation.y = -0.8 + WHEEL_RADIUS + susp.hit_dir_signs[0] * susp.hits[0].unwrap_or(1.2);
         t.rotation = steer_rot;
     }
     for mut t in front_right.iter_mut() {
-        t.translation.y = -0.8 + WHEEL_RADIUS - susp.hits[1].unwrap_or(1.2);
+        t.translation.y = -0.8 + WHEEL_RADIUS + susp.hit_dir_signs[1] * susp.hits[1].unwrap_or(1.2);
         t.rotation = steer_rot;
     }
     for mut t in rear_left.iter_mut() {
-        t.translation.y = -0.8 + WHEEL_RADIUS - susp.hits[2].unwrap_or(1.2);
+        t.translation.y = -0.8 + WHEEL_RADIUS + susp.hit_dir_signs[2] * susp.hits[2].unwrap_or(1.2);
     }
     for mut t in rear_right.iter_mut() {
-        t.translation.y = -0.8 + WHEEL_RADIUS - susp.hits[3].unwrap_or(1.2);
+        t.translation.y = -0.8 + WHEEL_RADIUS + susp.hit_dir_signs[3] * susp.hits[3].unwrap_or(1.2);
     }
 }
 
