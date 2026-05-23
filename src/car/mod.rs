@@ -244,7 +244,7 @@ fn apply_car_forces(
     let engine = input.throttle * params.engine_force * boost;
     forces.apply_force(forward * engine);
 
-    if input.braking && speed > 0.5 {
+    if input.braking {
         forces.apply_force(-velocity.normalize_or_zero() * params.brake_force);
     }
 
