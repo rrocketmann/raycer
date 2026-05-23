@@ -43,18 +43,34 @@ fn spawn_world(
     mut images: ResMut<Assets<Image>>,
 ) {
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
-    let _entity = commands.spawn((
-        SceneRoot(car_scene),
+    let car_root = commands.spawn((
         Transform::from_xyz(0.0, 3.0, 0.0),
         Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
         CarVisual,
-        RigidBody::Kinematic,
+        RigidBody::Dynamic,
         Position(Vec3::new(0.0, 3.0, 0.0)),
         Rotation::default(),
-        ColliderConstructorHierarchy::new(ColliderConstructor::ConvexDecompositionFromMesh),
+        LinearVelocity::ZERO,
+        AngularVelocity::ZERO,
+    )).id();
+    commands.entity(car_root).insert((
+        LinearDamping(1.0),
+        AngularDamping(3.0),
+        MaxLinearSpeed(30.0),
+        MaxAngularSpeed(2.0),
+        CenterOfMass(Vec3::new(0.0, -0.05, 0.0)),
+        Friction::new(1.5),
         SweptCcd::NON_LINEAR,
+        Mass(15.0),
     ));
+
+    commands.entity(car_root).with_children(|parent| {
+        parent.spawn((
+            SceneRoot(car_scene),
+            Transform::from_xyz(0.0, -0.42, 0.0),
+        ));
+    });
 
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
     commands.spawn((
@@ -87,7 +103,7 @@ fn spawn_world(
     commands.spawn((
         Camera3d::default(),
         RenderTarget::Image(minimap_image.clone().into()),
-        Transform::from_xyz(0.0, 80.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 40.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
         MinimapCamera,
     ));
     commands.insert_resource(MinimapImage(minimap_image));

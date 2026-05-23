@@ -16,7 +16,6 @@ bevy_camera = "0.18"
 default = []
 web = ["bevy/webgl2"]
 
-# Speed up compilation for development
 [profile.dev]
 opt-level = 1
 
