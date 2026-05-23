@@ -245,8 +245,7 @@ fn apply_car_forces(
     forces.apply_force(forward * engine);
 
     if input.braking {
-        let brake = params.brake_force * speed.min(1.0);
-        forces.apply_force(-velocity.normalize_or_zero() * brake);
+        forces.apply_force(-velocity.normalize_or_zero() * params.brake_force);
     }
 
     let steer_strength = (forward_speed.abs() / 30.0).min(1.0);
@@ -373,6 +372,15 @@ fn label_wheels(
         }
         if found_wheels {
             commands.entity(car_entity).insert(WheelsLabeled);
+            commands.entity(car_entity).with_children(|parent| {
+                for &(lx, _ly, lz) in WHEEL_OFFSETS.iter() {
+                    parent.spawn((
+                        Collider::cylinder(0.3, 0.25),
+                        Transform::from_xyz(lx, -0.15, lz)
+                            .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
+                    ));
+                }
+            });
         }
     }
 }
