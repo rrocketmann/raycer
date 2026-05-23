@@ -1,8 +1,9 @@
 use bevy::prelude::*;
+use avian3d::prelude::Rotation;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::car::{CarInput, CarState, Telemetry};
-use crate::track::MinimapImage;
+use crate::car::{CarState, PlayerCar};
+use crate::car::Telemetry;
 
 pub struct UiPlugin;
 
@@ -15,99 +16,90 @@ impl Plugin for UiPlugin {
 fn egui_panel(
     mut contexts: EguiContexts,
     telemetry: Res<Telemetry>,
-    car_input: Res<CarInput>,
-    car_state: Res<CarState>,
-    minimap_image: Res<MinimapImage>,
+    _car_state: Res<CarState>,
+    car_query: Query<&Rotation, With<PlayerCar>>,
+    keys: Res<ButtonInput<KeyCode>>,
 ) {
-    let minimap_tex = {
-        contexts.add_image(bevy_egui::EguiTextureHandle::Strong(minimap_image.0.clone()));
-        contexts.image_id(&minimap_image.0)
-    };
-
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
-    let boosting = car_input.boosting;
-    let braking = car_input.braking;
-    let throttle = car_input.throttle;
-    let steer = car_input.steer;
+    let upside_down = car_query
+        .iter()
+        .next()
+        .map_or(false, |rot| (rot.0 * Vec3::Y).dot(Vec3::Y) <= 0.0);
 
-    egui::SidePanel::right("telemetry")
-        .min_width(220.0)
+    let w = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
+    let a = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
+    let s = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown);
+    let d = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
+    let sp = keys.pressed(KeyCode::Space);
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let q = keys.pressed(KeyCode::KeyQ);
+    let e = keys.pressed(KeyCode::KeyE);
+
+    let speed_kmh = telemetry.speed_history.last().copied().unwrap_or(0.0) * 3.6;
+    let turn_deg = telemetry.steer_history.last().copied().unwrap_or(0.0).to_degrees();
+
+    egui::Area::new("bottom_left_keys".into())
+        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
         .show(ctx, |ui| {
-            ui.add_space(8.0);
+            let key_w = 30.0;
+            let gap = 4.0;
+            ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
 
-            ui.heading("Speed");
-            ui.add_space(2.0);
-            let speed_kmh = telemetry.speed_history.last().copied().unwrap_or(0.0) * 3.6;
-            ui.label(format!("{:.0} km/h", speed_kmh));
-            if boosting {
-                ui.colored_label(egui::Color32::from_rgb(255, 100, 100), "BOOST");
-            }
-            if car_state.skidding {
-                ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "SKID");
-            }
-            ui.add_space(2.0);
-            let (speed_min, speed_max) = telemetry.speed_history.iter()
-                .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
-            draw_graph(ui, &telemetry.speed_history, speed_min, speed_max, egui::Color32::from_rgb(100, 200, 255));
-
-            ui.separator();
-            ui.heading("Steering");
-            ui.add_space(2.0);
-            let angle_deg = telemetry.steer_history.last().copied().unwrap_or(0.0).to_degrees();
-            let steer_label = if angle_deg.abs() < 2.0 {
-                "Center"
-            } else if angle_deg > 0.0 {
-                "Left"
-            } else {
-                "Right"
-            };
-            ui.label(format!("{} ({:.1}\u{00b0})", steer_label, angle_deg));
-            ui.add_space(2.0);
-            let (steer_min, steer_max) = telemetry.steer_history.iter()
-                .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
-            draw_graph(ui, &telemetry.steer_history, steer_min, steer_max, egui::Color32::from_rgb(255, 180, 60));
-
-            ui.separator();
-            ui.heading("Map");
-            ui.add_space(2.0);
-
-            let size = 180.0;
-            if let Some(texture_id) = minimap_tex {
-                ui.image(egui::load::SizedTexture::new(texture_id, egui::vec2(size, size)));
-            }
-
-            ui.separator();
-            ui.add_space(8.0);
-            let key_width = 28.0;
-            let key_spacing = 4.0;
-            let shift_width = key_width * 2.0;
-            let space_width = shift_width * 2.0;
-            let row_indent = 8.0;
-            let w_indent = row_indent + key_width + key_spacing;
-
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(key_spacing, key_spacing);
-                ui.horizontal(|ui| {
-                    ui.add_space(w_indent);
-                    draw_key(ui, "W", throttle > 0.0, key_width);
-                });
-                ui.horizontal(|ui| {
-                    ui.add_space(row_indent);
-                    draw_key(ui, "A", steer > 0.0, key_width);
-                    draw_key(ui, "S", throttle < 0.0, key_width);
-                    draw_key(ui, "D", steer < 0.0, key_width);
-                });
-                ui.horizontal(|ui| {
-                    draw_key(ui, "Shift", boosting, shift_width);
-                });
-                ui.horizontal(|ui| {
-                    draw_key(ui, "Space", braking, space_width);
-                });
+            ui.horizontal(|ui| {
+                draw_roll_key(ui, "Q", q, upside_down, key_w);
+                draw_key(ui, "W", w, key_w);
+                draw_roll_key(ui, "E", e, upside_down, key_w);
             });
+            ui.horizontal(|ui| {
+                draw_key(ui, "A", a, key_w);
+                draw_key(ui, "S", s, key_w);
+                draw_key(ui, "D", d, key_w);
+            });
+            ui.horizontal(|ui| {
+                draw_key(ui, "Shift", shift, key_w * 2.0);
+                draw_key(ui, "Space", sp, key_w * 2.0);
+            });
+        });
+
+    egui::Area::new("bottom_right_stats".into())
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(egui::Color32::from_black_alpha(140))
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80)))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{:.0}", speed_kmh))
+                                .size(36.0)
+                                .color(egui::Color32::from_rgb(100, 200, 255))
+                                .strong(),
+                        );
+                        ui.label(
+                            egui::RichText::new("km/h")
+                                .size(14.0)
+                                .color(egui::Color32::from_rgb(140, 140, 140)),
+                        );
+                        ui.add_space(6.0);
+                        ui.label(
+                            egui::RichText::new(format!("{:.0}°", turn_deg.abs()))
+                                .size(24.0)
+                                .color(egui::Color32::from_rgb(255, 180, 60))
+                                .strong(),
+                        );
+                        ui.label(
+                            egui::RichText::new(if turn_deg > 2.0 { "LEFT" } else if turn_deg < -2.0 { "RIGHT" } else { "CENTER" })
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(140, 140, 140)),
+                        );
+                    });
+                });
         });
 }
 
@@ -122,49 +114,31 @@ fn draw_key(ui: &mut egui::Ui, label: &str, pressed: bool, width: f32) {
     } else {
         egui::Color32::from_rgb(200, 200, 200)
     };
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 28.0), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 30.0), egui::Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, bg);
-    painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80)), egui::StrokeKind::Outside);
-    painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(14.0), fg);
+    painter.rect_filled(rect, 2.0, bg);
+    painter.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80)), egui::StrokeKind::Outside);
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(13.0), fg);
 }
 
-fn draw_graph(ui: &mut egui::Ui, data: &[f32], min_val: f32, max_val: f32, color: egui::Color32) {
-    let (rect, response) = ui.allocate_exact_size(
-        egui::Vec2::new(ui.available_width(), 60.0),
-        egui::Sense::hover(),
-    );
-    if !rect.is_positive() || data.len() < 2 {
-        return;
-    }
+fn draw_roll_key(ui: &mut egui::Ui, label: &str, pressed: bool, upside_down: bool, width: f32) {
+    let bg = if pressed && upside_down {
+        egui::Color32::from_rgb(100, 200, 100)
+    } else if upside_down {
+        egui::Color32::from_rgb(60, 80, 60)
+    } else {
+        egui::Color32::from_rgb(30, 30, 30)
+    };
+    let fg = if pressed && upside_down {
+        egui::Color32::BLACK
+    } else if upside_down {
+        egui::Color32::from_rgb(150, 200, 150)
+    } else {
+        egui::Color32::from_rgb(80, 80, 80)
+    };
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 30.0), egui::Sense::hover());
     let painter = ui.painter();
-    let range = max_val - min_val;
-
-    painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(30, 30, 30));
-
-    let zero_y = rect.max.y - ((0.0 - min_val) / range) * rect.height();
-    if zero_y > rect.min.y && zero_y < rect.max.y {
-        painter.line_segment(
-            [egui::pos2(rect.min.x, zero_y), egui::pos2(rect.max.x, zero_y)],
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 60, 60)),
-        );
-    }
-
-    let points: Vec<egui::Pos2> = data
-        .iter()
-        .enumerate()
-        .map(|(i, &v)| {
-            let x = rect.min.x + (i as f32 / (data.len() - 1) as f32) * rect.width();
-            let y = rect.max.y - ((v - min_val) / range) * rect.height();
-            egui::pos2(x, y.clamp(rect.min.y, rect.max.y))
-        })
-        .collect();
-
-    if !points.is_empty() {
-        for p in &points {
-            painter.circle_filled(*p, 1.5, color);
-        }
-    }
-
-    let _ = response;
+    painter.rect_filled(rect, 2.0, bg);
+    painter.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80)), egui::StrokeKind::Outside);
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(13.0), fg);
 }
