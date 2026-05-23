@@ -63,12 +63,13 @@ fn spawn_world(
         Friction::new(1.5),
         SweptCcd::NON_LINEAR,
         Mass(15.0),
+        Collider::cuboid(0.8, 0.25, 1.6),
     ));
 
     commands.entity(car_root).with_children(|parent| {
         parent.spawn((
             SceneRoot(car_scene),
-            Transform::from_xyz(0.0, -0.42, 0.0),
+            Transform::from_xyz(0.0, -0.09, 0.0),
         ));
     });
 
