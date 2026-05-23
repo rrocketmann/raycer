@@ -41,9 +41,6 @@ pub struct PlayerCar;
 pub struct CarCamera;
 
 #[derive(Component)]
-pub struct MinimapCamera;
-
-#[derive(Component)]
 pub struct CarVisual;
 
 #[derive(Component)]
@@ -266,7 +263,7 @@ fn apply_car_forces(
     forces.apply_force(-velocity * speed * params.drag);
 
     let world_up = Vec3::Y;
-    if input.roll != 0.0 && up.dot(world_up) > 0.0 {
+    if input.roll != 0.0 && up.dot(world_up) <= 0.0 {
         forces.apply_torque(forward * input.roll * params.steer_torque * 0.5);
     }
 
