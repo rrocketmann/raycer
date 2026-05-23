@@ -75,6 +75,7 @@ pub struct SuspensionState {
 pub struct CarInput {
     pub throttle: f32,
     pub steer: f32,
+    pub roll: f32,
     pub braking: bool,
     pub boosting: bool,
 }
@@ -202,6 +203,14 @@ fn capture_input(keys: Res<ButtonInput<KeyCode>>, mut input: ResMut<CarInput>) {
         0.0
     };
 
+    input.roll = if keys.pressed(KeyCode::KeyQ) {
+        -1.0
+    } else if keys.pressed(KeyCode::KeyE) {
+        1.0
+    } else {
+        0.0
+    };
+
     input.braking = keys.pressed(KeyCode::Space);
     input.boosting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 }
@@ -257,6 +266,10 @@ fn apply_car_forces(
     forces.apply_force(-velocity * speed * params.drag);
 
     let world_up = Vec3::Y;
+    if input.roll != 0.0 && up.dot(world_up) > 0.0 {
+        forces.apply_torque(forward * input.roll * params.steer_torque * 0.5);
+    }
+
     if up.dot(world_up) > 0.0 {
         forces.apply_force(-up * params.downforce * forward_speed.abs().max(5.0));
     }
