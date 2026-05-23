@@ -43,8 +43,7 @@ fn spawn_world(
     mut images: ResMut<Assets<Image>>,
 ) {
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
-    let mut entity = commands.spawn((
-        SceneRoot(car_scene),
+    let car_root = commands.spawn((
         Transform::from_xyz(0.0, 3.0, 0.0),
         Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
@@ -54,18 +53,24 @@ fn spawn_world(
         Rotation::default(),
         LinearVelocity::ZERO,
         AngularVelocity::ZERO,
-    ));
-    entity.insert((
+    )).id();
+    commands.entity(car_root).insert((
         LinearDamping(1.0),
-        AngularDamping(0.5),
+        AngularDamping(3.0),
         MaxLinearSpeed(30.0),
-        MaxAngularSpeed(10.0),
-        Friction::new(0.6),
+        MaxAngularSpeed(2.0),
+        CenterOfMass(Vec3::new(0.0, -0.05, 0.0)),
+        Friction::new(1.5),
         SweptCcd::NON_LINEAR,
-        ColliderConstructorHierarchy::new(ColliderConstructor::ConvexDecompositionFromMesh),
         Mass(15.0),
-        Collider::cuboid(0.8, 0.25, 1.6),
     ));
+
+    commands.entity(car_root).with_children(|parent| {
+        parent.spawn((
+            SceneRoot(car_scene),
+            Transform::from_xyz(0.0, -0.42, 0.0),
+        ));
+    });
 
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
     commands.spawn((

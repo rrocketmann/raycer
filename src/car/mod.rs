@@ -146,7 +146,7 @@ impl Default for CarParams {
         Self {
             engine_force: 500.0,
             brake_force: 1000.0,
-            steer_torque: 3500.0,
+            steer_torque: 800.0,
             lateral_grip: 300.0,
             max_lateral_force: 10000.0,
             rolling_resistance: 15.0,
@@ -232,8 +232,8 @@ fn apply_car_forces(
         collect_descendants(&children_query, car_entity, &mut car_colliders.0);
     }
 
-    let forward = forces.rotation().0 * Vec3::NEG_Z;
-    let right = forces.rotation().0 * Vec3::X;
+    let forward = forces.rotation().0 * Vec3::Z;
+    let _right = forces.rotation().0 * Vec3::X;
     let up = forces.rotation().0 * Vec3::Y;
     let velocity = forces.linear_velocity();
     let speed = velocity.length();
@@ -248,13 +248,10 @@ fn apply_car_forces(
         forces.apply_force(-velocity.normalize_or_zero() * params.brake_force);
     }
 
-    let steer_strength = (forward_speed.abs() / 30.0).clamp(0.2, 1.0);
+    let steer_strength = (forward_speed.abs() / 30.0).min(1.0);
     forces.apply_torque(Vec3::Y * input.steer * params.steer_torque * steer_strength);
 
-    let lateral_speed = velocity.dot(right);
-    let lateral_force = (-lateral_speed * params.lateral_grip)
-        .clamp(-params.max_lateral_force, params.max_lateral_force);
-    forces.apply_force(right * lateral_force);
+    // Lateral grip handled by contact friction — no artificial grip force
 
     forces.apply_force(-velocity * params.rolling_resistance);
     forces.apply_force(-velocity * speed * params.drag);
@@ -264,18 +261,7 @@ fn apply_car_forces(
         forces.apply_force(-up * params.downforce * forward_speed.abs().max(5.0));
     }
 
-    let alignment = up.dot(world_up).clamp(-1.0, 1.0);
-    let correction_strength = ((1.0 - alignment) * 0.5).max(0.1);
-    let tilt = up.cross(world_up);
-    let torque_axis = if tilt.length_squared() > 0.0001 {
-        tilt.normalize()
-    } else if alignment < 0.0 {
-        right
-    } else {
-        Vec3::ZERO
-    };
-    let roll_strength = (forward_speed.abs() / 20.0 + 1.0).clamp(1.0, 10.0);
-    forces.apply_torque(torque_axis * correction_strength * roll_strength * 500.0);
+    // Box collider keeps the car level — no anti-roll torque needed
 
     let filter = SpatialQueryFilter::from_excluded_entities(car_colliders.0.iter().copied());
     let mut susp = SuspensionState::default();
@@ -317,9 +303,9 @@ fn sync_car_state(
         return;
     };
 
-    let forward = rotation.0 * Vec3::NEG_Z;
+    let forward = rotation.0 * Vec3::Z;
     let forward_speed = lin_vel.0.dot(forward);
-    let yaw = (-forward.x).atan2(-forward.z);
+    let yaw = forward.x.atan2(forward.z);
 
     car.speed = forward_speed;
     car.yaw = yaw;
@@ -344,7 +330,7 @@ fn camera_follow(
         return;
     };
 
-    let forward = Vec3::new(-car.yaw.sin(), 0.0, -car.yaw.cos());
+    let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
     let target = car_pos.0 - forward * 8.0 + Vec3::new(0.0, 5.0, 0.0);
 
     for mut cam in cam_query.iter_mut() {
@@ -386,6 +372,15 @@ fn label_wheels(
         }
         if found_wheels {
             commands.entity(car_entity).insert(WheelsLabeled);
+            commands.entity(car_entity).with_children(|parent| {
+                for &(lx, _ly, lz) in WHEEL_OFFSETS.iter() {
+                    parent.spawn((
+                        Collider::cylinder(0.3, 0.25),
+                        Transform::from_xyz(lx, -0.15, lz)
+                            .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
+                    ));
+                }
+            });
         }
     }
 }
@@ -439,28 +434,28 @@ fn debug_log(
     input: Res<CarInput>,
     car_state: Res<CarState>,
     susp: Res<SuspensionState>,
-    car_query: Query<(&Position, &Rotation, &LinearVelocity, &AngularVelocity, &Car), With<PlayerCar>>,
+    car_query: Query<(&Position, &Transform, &Rotation, &LinearVelocity, &AngularVelocity, &Car), With<PlayerCar>>,
 ) {
     *frame += 1;
     if *frame % 30 != 0 {
         return;
     }
     use std::f32::consts::PI;
-    let Ok((pos, rot, vel, ang_vel, car)) = car_query.single() else {
+    let Ok((pos, tf, rot, vel, ang_vel, car)) = car_query.single() else {
         return;
     };
     let (roll, yaw, pitch) = rot.0.to_euler(EulerRot::ZYX);
     info!(
         "\n─── frame={} ───\n\
          input: t={:.2} s={:.2} brake={} boost={}\n\
-         pos: ({:.2}, {:.2}, {:.2})  yaw={:.1}° pitch={:.1}° roll={:.1}°\n\
+         pos: ({:.2}, {:.2}, {:.2})  tf_y={:.2}  yaw={:.1}° pitch={:.1}° roll={:.1}°\n\
          vel: ({:.2}, {:.2}, {:.2})  speed={:.1}  fwd={:.1}\n\
          ang_vel: ({:.2}, {:.2}, {:.2})\n\
          susp: FL(dist={:.3}, comp={:.3}, force={:.0}) | FR(d={:.3}, c={:.3}, f={:.0}) | RL(d={:.3}, c={:.3}, f={:.0}) | RR(d={:.3}, c={:.3}, f={:.0})\n\
          skid={}",
         *frame,
         input.throttle, input.steer, input.braking, input.boosting,
-        pos.0.x, pos.0.y, pos.0.z, yaw * 180.0 / PI, pitch * 180.0 / PI, roll * 180.0 / PI,
+        pos.0.x, pos.0.y, pos.0.z, tf.translation.y, yaw * 180.0 / PI, pitch * 180.0 / PI, roll * 180.0 / PI,
         vel.0.x, vel.0.y, vel.0.z, vel.0.length(), car.speed,
         ang_vel.0.x, ang_vel.0.y, ang_vel.0.z,
         susp.hits[0].unwrap_or(-1.0), susp.compressions[0], susp.forces[0],
