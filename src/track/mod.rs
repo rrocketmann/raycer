@@ -77,8 +77,11 @@ fn spawn_world(
     commands.spawn((
         SceneRoot(map_scene),
         Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(50.0)),
+    ));
+
+    commands.spawn((
         RigidBody::Static,
-        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
+        Collider::half_space(Vec3::Y),
     ));
 
     commands.spawn((
