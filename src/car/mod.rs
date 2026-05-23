@@ -245,7 +245,8 @@ fn apply_car_forces(
     forces.apply_force(forward * engine);
 
     if input.braking {
-        forces.apply_force(-velocity.normalize_or_zero() * params.brake_force);
+        let brake = params.brake_force * speed.min(1.0);
+        forces.apply_force(-velocity.normalize_or_zero() * brake);
     }
 
     let steer_strength = (forward_speed.abs() / 30.0).min(1.0);
