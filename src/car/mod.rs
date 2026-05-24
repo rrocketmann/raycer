@@ -126,7 +126,9 @@ pub struct CarParams {
     pub engine_force: f32,
     pub brake_force: f32,
     pub steer_torque: f32,
+    #[allow(dead_code)]
     pub lateral_grip: f32,
+    #[allow(dead_code)]
     pub max_lateral_force: f32,
     pub rolling_resistance: f32,
     pub drag: f32,

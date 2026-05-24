@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use avian3d::prelude::*;
-use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight};
+use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight, ShadowFilteringMethod};
 
 use crate::car::{Car, CarCamera, CarVisual, PlayerCar};
 
@@ -72,11 +72,12 @@ fn spawn_world(
         Camera3d::default(),
         Transform::from_xyz(0.0, 8.0, -15.0).looking_at(Vec3::ZERO, Vec3::Y),
         CarCamera,
+        ShadowFilteringMethod::Gaussian,
     ));
 
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.95, 0.92, 0.85),
-        brightness: 120.0,
+        brightness: 0.15,
         affects_lightmapped_meshes: true,
     });
 }

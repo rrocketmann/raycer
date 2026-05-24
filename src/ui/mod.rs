@@ -77,7 +77,7 @@ fn egui_panel(
                     ui.vertical_centered(|ui| {
                         ui.label(
                             egui::RichText::new(format!("{:.0}", speed_kmh))
-                                .size(36.0)
+                                .size(20.0)
                                 .color(egui::Color32::from_rgb(100, 200, 255))
                                 .strong(),
                         );
@@ -89,13 +89,13 @@ fn egui_panel(
                         ui.add_space(6.0);
                         ui.label(
                             egui::RichText::new(format!("{:.0}°", turn_deg.abs()))
-                                .size(24.0)
+                                .size(20.0)
                                 .color(egui::Color32::from_rgb(255, 180, 60))
                                 .strong(),
                         );
                         ui.label(
                             egui::RichText::new(if turn_deg > 2.0 { "LEFT" } else if turn_deg < -2.0 { "RIGHT" } else { "CENTER" })
-                                .size(12.0)
+                                .size(11.0)
                                 .color(egui::Color32::from_rgb(140, 140, 140)),
                         );
                     });
