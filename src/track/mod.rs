@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use avian3d::prelude::*;
 use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight, ShadowFilteringMethod};
 
-use crate::car::{Car, CarCamera, CarVisual, PlayerCar};
+use crate::car::{Car, CarCamera, CarVisual, PlayerCar, VehicleData};
 
 pub struct TrackPlugin;
 
@@ -29,15 +29,17 @@ fn spawn_world(
         AngularVelocity::ZERO,
     )).id();
     commands.entity(car_root).insert((
-        LinearDamping(1.0),
-        AngularDamping(3.0),
-        MaxLinearSpeed(30.0),
-        MaxAngularSpeed(2.0),
+        LinearDamping(0.5),
+        AngularDamping(2.0),
+        MaxLinearSpeed(50.0),
+        MaxAngularSpeed(4.0),
         CenterOfMass(Vec3::new(0.0, -0.05, 0.0)),
-        Friction::new(1.5),
+        Friction::new(0.3),
         SweptCcd::NON_LINEAR,
         Mass(15.0),
         Collider::cuboid(0.8, 0.25, 1.6),
+        GravityScale(0.0),
+        VehicleData::default(),
     ));
 
     commands.entity(car_root).with_children(|parent| {
