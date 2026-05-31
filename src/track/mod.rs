@@ -1,17 +1,46 @@
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, MeshMaterial3d, StandardMaterial};
 use bevy::prelude::*;
 use avian3d::prelude::*;
 use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight, ShadowFilteringMethod};
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 
 use crate::car::{Car, CarCamera, PlayerCar, VehicleData};
 
 const CAR_COLLIDER_SIZE: Vec3 = Vec3::new(0.73, 0.40, 1.35);
 const CAR_COLLIDER_OFFSET: Vec3 = Vec3::new(-0.365, 0.20, -0.675);
 
+#[derive(Component)]
+struct MapRoot;
+
+#[derive(Component)]
+struct TrackMaterialApplied;
+
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+struct TrackExt {
+    #[uniform(100)]
+    variation: Vec4,
+}
+
+impl MaterialExtension for TrackExt {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/track_material.wgsl".into()
+    }
+
+    fn deferred_fragment_shader() -> ShaderRef {
+        "shaders/track_material.wgsl".into()
+    }
+}
+
+type TrackMaterial = ExtendedMaterial<StandardMaterial, TrackExt>;
+
 pub struct TrackPlugin;
 
 impl Plugin for TrackPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_world);
+        app.add_plugins(MaterialPlugin::<TrackMaterial>::default())
+            .add_systems(Startup, spawn_world)
+            .add_systems(Update, replace_map_materials);
     }
 }
 
@@ -38,7 +67,7 @@ fn spawn_world(
         Friction::new(0.01),
         SweptCcd::NON_LINEAR,
         Mass(15.0),
-        GravityScale(0.0),
+        GravityScale(1.0),
         VehicleData::default(),
     ));
 
@@ -56,11 +85,12 @@ fn spawn_world(
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
     commands.spawn((
         SceneRoot(map_scene),
-        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(20.0)),
+        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::new(20.0, 60.0, 20.0)),
         RigidBody::Static,
         ColliderConstructorHierarchy::new(
             ColliderConstructor::TrimeshFromMeshWithConfig(TrimeshFlags::FIX_INTERNAL_EDGES),
         ),
+        MapRoot,
     ));
 
     commands.spawn((
@@ -90,3 +120,29 @@ fn spawn_world(
     });
 }
 
+fn replace_map_materials(
+    map_query: Query<Entity, With<MapRoot>>,
+    children_query: Query<&Children>,
+    standard_materials: Res<Assets<StandardMaterial>>,
+    mut track_materials: ResMut<Assets<TrackMaterial>>,
+    mut commands: Commands,
+    material_query: Query<(Entity, &MeshMaterial3d<StandardMaterial>), Without<TrackMaterialApplied>>,
+) {
+    for map_entity in &map_query {
+        for child in children_query.iter_descendants(map_entity) {
+            if let Ok((entity, std_mat_handle)) = material_query.get(child) {
+                if let Some(std_mat) = standard_materials.get(&std_mat_handle.0) {
+                    let track_mat = TrackMaterial {
+                        base: std_mat.clone(),
+                        extension: TrackExt { variation: Vec4::new(0.3, 0.25, 0.2, 0.0) },
+                    };
+                    let track_handle = track_materials.add(track_mat);
+                    commands.entity(entity)
+                        .remove::<MeshMaterial3d<StandardMaterial>>()
+                        .insert(MeshMaterial3d(track_handle))
+                        .insert(TrackMaterialApplied);
+                }
+            }
+        }
+    }
+}

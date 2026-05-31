@@ -20,7 +20,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(window_plugin))
         .add_plugins(PhysicsPlugins::default())
         .add_plugins(PhysicsDebugPlugin::default())
-        .insert_resource(Gravity(Vec3::NEG_Y * 15.0))
+        .insert_resource(Gravity(Vec3::NEG_Y * 120.0))
         .insert_resource(SubstepCount(12))
         .insert_resource(SolverConfig {
             contact_damping_ratio: 15.0,
