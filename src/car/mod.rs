@@ -24,6 +24,7 @@ impl Plugin for CarPlugin {
                     label_wheels,
                     animate_wheels,
                     record_telemetry,
+                    respawn_car,
                 ),
             );
     }
@@ -97,6 +98,7 @@ pub struct VehiclePhysicsConfig {
     pub engine_force: f32,
     pub brake_force: f32,
     pub steer_torque: f32,
+    pub roll_torque: f32,
     pub rolling_resistance: f32,
     pub drag_coefficient: f32,
     pub max_speed: f32,
@@ -109,14 +111,15 @@ pub struct VehiclePhysicsConfig {
 impl Default for VehiclePhysicsConfig {
     fn default() -> Self {
         Self {
-            downforce: 300.0,
-            downforce_speed: 0.05,
+            downforce: 80.0,
+            downforce_speed: 0.02,
             lateral_stiffness: 300.0,
             slip_threshold: 4.0,
             kinetic_friction: 8000.0,
             engine_force: 6000.0,
             brake_force: 15000.0,
             steer_torque: 600.0,
+    roll_torque: 300.0,
             rolling_resistance: 3.0,
             drag_coefficient: 0.4,
             max_speed: 40.0,
@@ -140,6 +143,7 @@ pub struct CarInput {
     pub steer: f32,
     pub braking: bool,
     pub boosting: bool,
+    pub roll: f32,
 }
 
 #[derive(Resource, Default)]
@@ -332,6 +336,10 @@ fn apply_vehicle_forces(
         forces.apply_torque(car_rot * Vec3::Y * input.steer * config.steer_torque * steer_strength);
     }
 
+    if input.roll != 0.0 {
+        forces.apply_torque(car_rot * Vec3::Z * input.roll * config.roll_torque);
+    }
+
     forces.apply_force(-velocity * config.rolling_resistance);
     forces.apply_force(-velocity * speed * config.drag_coefficient);
 
@@ -373,6 +381,14 @@ fn capture_input(keys: Res<ButtonInput<KeyCode>>, mut input: ResMut<CarInput>) {
 
     input.braking = keys.pressed(KeyCode::Space);
     input.boosting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+
+    input.roll = if keys.pressed(KeyCode::KeyQ) {
+        -1.0
+    } else if keys.pressed(KeyCode::KeyE) {
+        1.0
+    } else {
+        0.0
+    };
 }
 
 fn sync_car_state(
@@ -410,15 +426,16 @@ fn sync_car_state(
 }
 
 fn camera_follow(
-    car_query: Query<(&Car, &Position), With<PlayerCar>>,
+    car_query: Query<(&Rotation, &Position), With<PlayerCar>>,
     mut cam_query: Query<&mut Transform, (With<CarCamera>, Without<PlayerCar>)>,
 ) {
-    let Some((car, car_pos)) = car_query.iter().next() else {
+    let Some((car_rot, car_pos)) = car_query.iter().next() else {
         return;
     };
 
-    let forward = Vec3::new(car.yaw.sin(), 0.0, car.yaw.cos());
-    let target = car_pos.0 - forward * 8.0 + Vec3::new(0.0, 5.0, 0.0);
+    let facing = *car_rot * Vec3::Z;
+    let flat = Vec3::new(facing.x, 0.0, facing.z).normalize_or(Vec3::Z);
+    let target = car_pos.0 - flat * 8.0 + Vec3::new(0.0, 5.0, 0.0);
 
     for mut cam in cam_query.iter_mut() {
         cam.translation = cam.translation.lerp(target, 0.05);
@@ -543,5 +560,18 @@ fn record_telemetry(
         return;
     };
     telemetry.record(car.speed, wheel_state.current_angle, car.yaw);
+}
+
+fn respawn_car(
+    mut car_query: Query<(&mut Position, &mut LinearVelocity, &mut AngularVelocity), With<PlayerCar>>,
+) {
+    let Ok((mut pos, mut lin_vel, mut ang_vel)) = car_query.single_mut() else {
+        return;
+    };
+    if pos.0.y < -20.0 {
+        pos.0 = Vec3::new(0.0, 5.0, 0.0);
+        lin_vel.0 = Vec3::ZERO;
+        ang_vel.0 = Vec3::ZERO;
+    }
 }
 
