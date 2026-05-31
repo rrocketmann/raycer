@@ -2,7 +2,10 @@ use bevy::prelude::*;
 use avian3d::prelude::*;
 use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight, ShadowFilteringMethod};
 
-use crate::car::{Car, CarCamera, CarVisual, PlayerCar, VehicleData};
+use crate::car::{Car, CarCamera, PlayerCar, VehicleData};
+
+const CAR_COLLIDER_SIZE: Vec3 = Vec3::new(0.73, 0.40, 1.35);
+const CAR_COLLIDER_OFFSET: Vec3 = Vec3::new(-0.365, 0.20, -0.675);
 
 pub struct TrackPlugin;
 
@@ -18,10 +21,8 @@ fn spawn_world(
 ) {
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
     let car_root = commands.spawn((
-        Transform::from_xyz(0.0, 3.0, 0.0),
         Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
-        CarVisual,
         RigidBody::Dynamic,
         Position(Vec3::new(0.0, 3.0, 0.0)),
         Rotation::default(),
@@ -30,31 +31,36 @@ fn spawn_world(
     )).id();
     commands.entity(car_root).insert((
         LinearDamping(0.5),
-        AngularDamping(2.0),
+        AngularDamping(4.0),
         MaxLinearSpeed(50.0),
         MaxAngularSpeed(4.0),
-        CenterOfMass(Vec3::new(0.0, -0.05, 0.0)),
-        Friction::new(0.3),
+        CenterOfMass(Vec3::new(-0.365, 0.0, -0.675)),
+        Friction::new(0.01),
         SweptCcd::NON_LINEAR,
         Mass(15.0),
-        Collider::cuboid(0.8, 0.25, 1.6),
         GravityScale(0.0),
         VehicleData::default(),
     ));
 
     commands.entity(car_root).with_children(|parent| {
         parent.spawn((
-            SceneRoot(car_scene),
-            Transform::from_xyz(0.0, -0.42, 0.0),
+            Collider::cuboid(CAR_COLLIDER_SIZE.x, CAR_COLLIDER_SIZE.y, CAR_COLLIDER_SIZE.z),
+            Transform::from_translation(CAR_COLLIDER_OFFSET),
         ));
+    });
+
+    commands.entity(car_root).with_children(|parent| {
+        parent.spawn(SceneRoot(car_scene));
     });
 
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
     commands.spawn((
         SceneRoot(map_scene),
-        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(50.0)),
+        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(20.0)),
         RigidBody::Static,
-        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
+        ColliderConstructorHierarchy::new(
+            ColliderConstructor::TrimeshFromMeshWithConfig(TrimeshFlags::FIX_INTERNAL_EDGES),
+        ),
     ));
 
     commands.spawn((
@@ -83,3 +89,4 @@ fn spawn_world(
         affects_lightmapped_meshes: true,
     });
 }
+
