@@ -60,9 +60,9 @@ fn spawn_world(
     )).id();
     commands.entity(car_root).insert((
         LinearDamping(0.5),
-        AngularDamping(0.5),
+        AngularDamping(4.0),
         MaxLinearSpeed(50.0),
-        MaxAngularSpeed(8.0),
+        MaxAngularSpeed(4.0),
         CenterOfMass(Vec3::new(-0.365, 0.0, -0.675)),
         Friction::new(0.01),
         SweptCcd::NON_LINEAR,
@@ -95,10 +95,10 @@ fn spawn_world(
 
     commands.spawn((
         DirectionalLight {
-            illuminance: 12000.0,
+            illuminance: 16000.0,
             shadows_enabled: true,
-            shadow_depth_bias: 0.05,
-            shadow_normal_bias: 0.6,
+            shadow_depth_bias: 0.02,
+            shadow_normal_bias: 0.2,
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -1.2, 0.4, 0.0)),
@@ -115,19 +115,9 @@ fn spawn_world(
 
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.95, 0.92, 0.85),
-        brightness: 0.4,
+        brightness: 0.15,
         affects_lightmapped_meshes: true,
     });
-
-    commands.spawn((
-        PointLight {
-            intensity: 2000.0,
-            color: Color::srgb(0.6, 0.65, 0.75),
-            shadows_enabled: false,
-            ..default()
-        },
-        Transform::from_xyz(0.0, 30.0, 0.0),
-    ));
 }
 
 fn replace_map_materials(

@@ -11,10 +11,9 @@ impl Plugin for CarPlugin {
             .init_resource::<CarState>()
             .init_resource::<Telemetry>()
             .init_resource::<GroundState>()
-            .init_resource::<CameraFacing>()
             .add_systems(
                 FixedPostUpdate,
-                (ground_detection_system, apply_vehicle_forces).chain().in_set(PhysicsSystems::Prepare),
+                (ground_detection_system, apply_vehicle_forces, smooth_angular_velocity).chain().in_set(PhysicsSystems::Prepare),
             )
             .add_systems(
                 Update,
@@ -103,6 +102,7 @@ pub struct VehiclePhysicsConfig {
     pub rolling_resistance: f32,
     pub drag_coefficient: f32,
     pub max_speed: f32,
+    pub air_control_factor: f32,
     pub steer_smoothing: f32,
     pub max_steer_angle: f32,
     pub steer_speed_response: f32,
@@ -118,12 +118,13 @@ impl Default for VehiclePhysicsConfig {
             kinetic_friction: 8000.0,
             engine_force: 6000.0,
             brake_force: 15000.0,
-steer_torque: 150.0,
-            roll_torque: 50.0,
+            steer_torque: 600.0,
+    roll_torque: 300.0,
             rolling_resistance: 3.0,
             drag_coefficient: 0.4,
-max_speed: 40.0,
-        steer_smoothing: 10.0,
+            max_speed: 40.0,
+            air_control_factor: 0.3,
+            steer_smoothing: 10.0,
             max_steer_angle: 0.45,
             steer_speed_response: 25.0,
         }
@@ -281,15 +282,9 @@ fn apply_vehicle_forces(
 
     let grounded = ground.grounded;
     let surface_normal = ground.surface_normal;
-    let car_down = car_rot * Vec3::NEG_Y;
-    let bottom_contact = car_down.dot(surface_normal) < -0.5;
 
-    let downforce_mag = config.downforce + config.downforce * config.downforce_speed * speed;
-    if bottom_contact {
-        forces.apply_force(-surface_normal * downforce_mag);
-    } else {
-        forces.apply_force(-Vec3::Y * downforce_mag * 0.3);
-    }
+    forces.apply_force(-Vec3::Y * config.downforce);
+    forces.apply_force(-Vec3::Y * config.downforce * config.downforce_speed * speed);
 
     let lateral_vel = velocity.dot(right);
 
@@ -322,28 +317,27 @@ fn apply_vehicle_forces(
 
     let boost = if input.boosting { 1.5 } else { 1.0 };
 
-    if grounded && bottom_contact {
+    if grounded {
         let surface_forward = (forward - forward.dot(surface_normal) * surface_normal)
             .normalize_or(forward);
         forces.apply_force(surface_forward * input.throttle * config.engine_force * boost);
+    } else {
+        forces.apply_force(forward * input.throttle * config.engine_force * boost * config.air_control_factor);
     }
 
-    if input.braking && grounded && bottom_contact {
+    if input.braking {
         forces.apply_force(-velocity.normalize_or(Vec3::ZERO) * config.brake_force);
     }
 
-    if grounded && bottom_contact {
-        let steer_strength = (forward_speed.abs() / config.steer_speed_response)
-            .min(1.0)
-            .max(0.0);
-        if steer_strength > 0.01 {
-            forces.apply_torque(car_rot * Vec3::Y * input.steer * config.steer_torque * steer_strength);
-        }
+    let steer_strength = (forward_speed.abs() / config.steer_speed_response)
+        .min(1.0)
+        .max(0.0);
+    if steer_strength > 0.01 {
+        forces.apply_torque(car_rot * Vec3::Y * input.steer * config.steer_torque * steer_strength);
     }
 
     if input.roll != 0.0 {
-        let roll_axis = car_rot * Vec3::X;
-        *forces.angular_velocity_mut() += roll_axis * input.roll * config.roll_torque;
+        forces.apply_torque(car_rot * Vec3::Z * input.roll * config.roll_torque);
     }
 
     forces.apply_force(-velocity * config.rolling_resistance);
@@ -353,10 +347,19 @@ fn apply_vehicle_forces(
         let excess_drag = config.drag_coefficient + 2.0 * (speed - config.max_speed);
         forces.apply_force(-velocity * excess_drag);
     }
+}
 
-    if grounded {
-        forces.angular_velocity_mut().y *= 0.8;
+fn smooth_angular_velocity(
+    ground: Res<GroundState>,
+    mut query: Query<&mut AngularVelocity, With<PlayerCar>>,
+) {
+    let Ok(mut ang_vel) = query.single_mut() else {
+        return;
+    };
+    if !ground.grounded {
+        return;
     }
+    ang_vel.0 *= 0.6;
 }
 
 fn capture_input(keys: Res<ButtonInput<KeyCode>>, mut input: ResMut<CarInput>) {
@@ -422,39 +425,20 @@ fn sync_car_state(
     car_state.skidding = input.braking || is_drifting;
 }
 
-#[derive(Resource, Default)]
-struct CameraFacing {
-    dir: Vec3,
-}
-
 fn camera_follow(
-    car_query: Query<(&Rotation, &Position, &LinearVelocity), With<PlayerCar>>,
+    car_query: Query<(&Rotation, &Position), With<PlayerCar>>,
     mut cam_query: Query<&mut Transform, (With<CarCamera>, Without<PlayerCar>)>,
-    mut cam_dir: ResMut<CameraFacing>,
 ) {
-    let Some((car_rot, car_pos, car_vel)) = car_query.iter().next() else {
+    let Some((car_rot, car_pos)) = car_query.iter().next() else {
         return;
     };
 
-    let forward = *car_rot * Vec3::Z;
-    let speed = car_vel.0.length();
-    let vel_forward = if speed > 1.0 { car_vel.0.dot(forward) } else { 1.0 };
-    let desired_dir = if vel_forward >= 0.0 { forward } else { -forward };
-    let flat = Vec3::new(desired_dir.x, 0.0, desired_dir.z);
-    let flat_len = flat.length();
-    if flat_len > 0.01 {
-        let target = flat / flat_len;
-        cam_dir.dir = cam_dir.dir.lerp(target, 0.1);
-        if cam_dir.dir.length() < 0.01 {
-            cam_dir.dir = Vec3::Z;
-        }
-        cam_dir.dir = cam_dir.dir.normalize();
-    }
-
-    let behind = car_pos.0 - cam_dir.dir * 8.0 + Vec3::new(0.0, 5.0, 0.0);
+    let facing = *car_rot * Vec3::Z;
+    let flat = Vec3::new(facing.x, 0.0, facing.z).normalize_or(Vec3::Z);
+    let target = car_pos.0 - flat * 8.0 + Vec3::new(0.0, 5.0, 0.0);
 
     for mut cam in cam_query.iter_mut() {
-        cam.translation = cam.translation.lerp(behind, 0.15);
+        cam.translation = cam.translation.lerp(target, 0.05);
         cam.look_at(car_pos.0 + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
     }
 }
