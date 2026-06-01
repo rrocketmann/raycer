@@ -60,9 +60,9 @@ fn spawn_world(
     )).id();
     commands.entity(car_root).insert((
         LinearDamping(0.5),
-        AngularDamping(1.0),
+        AngularDamping(0.5),
         MaxLinearSpeed(50.0),
-        MaxAngularSpeed(4.0),
+        MaxAngularSpeed(8.0),
         CenterOfMass(Vec3::new(-0.365, 0.0, -0.675)),
         Friction::new(0.01),
         SweptCcd::NON_LINEAR,

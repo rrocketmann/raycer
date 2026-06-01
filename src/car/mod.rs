@@ -14,7 +14,7 @@ impl Plugin for CarPlugin {
             .init_resource::<CameraFacing>()
             .add_systems(
                 FixedPostUpdate,
-                (ground_detection_system, apply_vehicle_forces, smooth_angular_velocity).chain().in_set(PhysicsSystems::Prepare),
+                (ground_detection_system, apply_vehicle_forces).chain().in_set(PhysicsSystems::Prepare),
             )
             .add_systems(
                 Update,
@@ -118,8 +118,8 @@ impl Default for VehiclePhysicsConfig {
             kinetic_friction: 8000.0,
             engine_force: 6000.0,
             brake_force: 15000.0,
-            steer_torque: 600.0,
-    roll_torque: 2400.0,
+steer_torque: 150.0,
+            roll_torque: 50.0,
             rolling_resistance: 3.0,
             drag_coefficient: 0.4,
 max_speed: 40.0,
@@ -342,7 +342,8 @@ fn apply_vehicle_forces(
     }
 
     if input.roll != 0.0 {
-        forces.apply_torque(car_rot * Vec3::Z * input.roll * config.roll_torque);
+        let roll_axis = car_rot * Vec3::X;
+        *forces.angular_velocity_mut() += roll_axis * input.roll * config.roll_torque;
     }
 
     forces.apply_force(-velocity * config.rolling_resistance);
@@ -352,19 +353,10 @@ fn apply_vehicle_forces(
         let excess_drag = config.drag_coefficient + 2.0 * (speed - config.max_speed);
         forces.apply_force(-velocity * excess_drag);
     }
-}
 
-fn smooth_angular_velocity(
-    ground: Res<GroundState>,
-    mut query: Query<&mut AngularVelocity, With<PlayerCar>>,
-) {
-    let Ok(mut ang_vel) = query.single_mut() else {
-        return;
-    };
-    if !ground.grounded {
-        return;
+    if grounded {
+        forces.angular_velocity_mut().y *= 0.8;
     }
-    ang_vel.0.y *= 0.8;
 }
 
 fn capture_input(keys: Res<ButtonInput<KeyCode>>, mut input: ResMut<CarInput>) {
