@@ -1,4 +1,5 @@
-<img width="1277" height="718" alt="image" src="https://github.com/user-attachments/assets/8af2cffa-59a2-4441-b5ca-599eef82bae8" />
+<img width="1275" height="713" alt="image" src="https://github.com/user-attachments/assets/75528fdc-414f-40ce-9211-b123f0acb04b" />
+
 
 Open-source AI gym for reinforcement learning research.
 
