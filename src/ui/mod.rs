@@ -29,8 +29,6 @@ fn egui_panel(
     let a = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
     let s = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown);
     let d = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
-    let q = keys.pressed(KeyCode::KeyQ);
-    let e = keys.pressed(KeyCode::KeyE);
     let sp = keys.pressed(KeyCode::Space);
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
@@ -45,9 +43,9 @@ fn egui_panel(
             ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
 
             ui.horizontal(|ui| {
-                draw_key(ui, "Q", q, key_w, key_h);
+                let spacer = (key_w + gap) as f32;
+                ui.add_space(spacer);
                 draw_key(ui, "W", w, key_w, key_h);
-                draw_key(ui, "E", e, key_w, key_h);
             });
             ui.horizontal(|ui| {
                 draw_key(ui, "A", a, key_w, key_h);

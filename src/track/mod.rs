@@ -1,7 +1,7 @@
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, MeshMaterial3d, StandardMaterial};
 use bevy::prelude::*;
 use avian3d::prelude::*;
-use bevy_light::{DirectionalLightShadowMap, GlobalAmbientLight, ShadowFilteringMethod};
+use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, GlobalAmbientLight, ShadowFilteringMethod};
 use bevy::render::render_resource::AsBindGroup;
 use bevy::shader::ShaderRef;
 
@@ -95,13 +95,20 @@ fn spawn_world(
 
     commands.spawn((
         DirectionalLight {
-            illuminance: 16000.0,
+            illuminance: 4000.0,
             shadows_enabled: true,
             shadow_depth_bias: 0.02,
-            shadow_normal_bias: 0.2,
+            shadow_normal_bias: 0.4,
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -1.2, 0.4, 0.0)),
+        CascadeShadowConfigBuilder {
+            num_cascades: 4,
+            minimum_distance: 0.1,
+            maximum_distance: 80.0,
+            first_cascade_far_bound: 5.0,
+            overlap_proportion: 0.2,
+        }.build(),
     ));
 
     commands.insert_resource(DirectionalLightShadowMap { size: 4096 });
@@ -115,7 +122,7 @@ fn spawn_world(
 
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.95, 0.92, 0.85),
-        brightness: 0.15,
+        brightness: 0.3,
         affects_lightmapped_meshes: true,
     });
 }
