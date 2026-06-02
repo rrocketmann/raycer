@@ -9,7 +9,7 @@ license = "CC0-1.0"
 bevy = "0.18"
 bevy_egui = "0.39"
 bevy_light = "0.18"
-avian3d = { version = "0.6", features = ["collider-from-mesh", "debug-plugin"] }
+avian3d = { version = "0.6", features = ["collider-from-mesh"] }
 bevy_camera = "0.18"
 
 [features]
