@@ -95,19 +95,19 @@ fn spawn_world(
 
     commands.spawn((
         DirectionalLight {
-            illuminance: 4000.0,
+            illuminance: 10000.0,
             shadows_enabled: true,
             shadow_depth_bias: 0.02,
-            shadow_normal_bias: 0.4,
+            shadow_normal_bias: 0.7,
             ..default()
         },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -1.2, 0.4, 0.0)),
+        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.95, 0.6, 0.0)),
         CascadeShadowConfigBuilder {
             num_cascades: 4,
             minimum_distance: 0.1,
-            maximum_distance: 80.0,
-            first_cascade_far_bound: 5.0,
-            overlap_proportion: 0.2,
+            maximum_distance: 250.0,
+            first_cascade_far_bound: 15.0,
+            overlap_proportion: 0.3,
         }.build(),
     ));
 
@@ -121,8 +121,8 @@ fn spawn_world(
     ));
 
     commands.insert_resource(GlobalAmbientLight {
-        color: Color::srgb(0.95, 0.92, 0.85),
-        brightness: 0.3,
+        color: Color::srgb(0.8, 0.85, 1.0),
+        brightness: 0.08,
         affects_lightmapped_meshes: true,
     });
 }
