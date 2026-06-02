@@ -98,11 +98,9 @@ pub struct VehiclePhysicsConfig {
     pub engine_force: f32,
     pub brake_force: f32,
     pub steer_torque: f32,
-    pub roll_torque: f32,
     pub rolling_resistance: f32,
     pub drag_coefficient: f32,
     pub max_speed: f32,
-    pub air_control_factor: f32,
     pub steer_smoothing: f32,
     pub max_steer_angle: f32,
     pub steer_speed_response: f32,
@@ -119,11 +117,9 @@ impl Default for VehiclePhysicsConfig {
             engine_force: 6000.0,
             brake_force: 15000.0,
             steer_torque: 600.0,
-    roll_torque: 300.0,
             rolling_resistance: 3.0,
             drag_coefficient: 0.4,
             max_speed: 40.0,
-            air_control_factor: 0.3,
             steer_smoothing: 10.0,
             max_steer_angle: 0.45,
             steer_speed_response: 25.0,
@@ -143,7 +139,6 @@ pub struct CarInput {
     pub steer: f32,
     pub braking: bool,
     pub boosting: bool,
-    pub roll: f32,
 }
 
 #[derive(Resource, Default)]
@@ -193,6 +188,7 @@ impl Telemetry {
 pub struct GroundState {
     pub grounded: bool,
     pub surface_normal: Vec3,
+    pub raw_normal: Vec3,
     normal_smooth: Vec3,
 }
 
@@ -201,6 +197,7 @@ impl Default for GroundState {
         Self {
             grounded: false,
             surface_normal: Vec3::Y,
+            raw_normal: Vec3::Y,
             normal_smooth: Vec3::Y,
         }
     }
@@ -209,11 +206,16 @@ impl Default for GroundState {
 fn ground_detection_system(
     collisions: Collisions,
     car_query: Query<Entity, With<PlayerCar>>,
+    car_rot_query: Query<&Rotation, With<PlayerCar>>,
     mut ground_state: ResMut<GroundState>,
 ) {
     let Ok(car_entity) = car_query.single() else {
         return;
     };
+    let Ok(car_rotation) = car_rot_query.single() else {
+        return;
+    };
+    let car_down = car_rotation.0 * Vec3::NEG_Y;
 
     let mut grounded = false;
     let mut weighted_normal = Vec3::ZERO;
@@ -228,34 +230,41 @@ fn ground_detection_system(
         }
 
         for manifold in &contact_pair.manifolds {
+            let raw_normal = if contact_pair.body1 == Some(car_entity) {
+                -manifold.normal
+            } else {
+                manifold.normal
+            };
+
+            let facing_car_bottom = car_down.dot(raw_normal) < 0.0;
+            if !facing_car_bottom {
+                continue;
+            }
+
             for point in &manifold.points {
-                if point.penetration <= 0.0 {
+                if point.penetration < 0.0 {
                     continue;
                 }
-                let normal = if contact_pair.body1 == Some(car_entity) {
-                    -manifold.normal
-                } else {
-                    manifold.normal
-                };
                 let weight = point.penetration;
-                weighted_normal += normal * weight;
+                weighted_normal += raw_normal * weight;
                 total_weight += weight;
                 grounded = true;
             }
         }
     }
 
-    let surface_normal = if total_weight > 0.0 {
+    let raw_normal = if total_weight > 0.0 {
         weighted_normal.normalize_or(Vec3::Y)
     } else {
         Vec3::Y
     };
 
     let smooth = 0.15;
-    ground_state.normal_smooth = ground_state.normal_smooth.lerp(surface_normal, smooth);
+    ground_state.normal_smooth = ground_state.normal_smooth.lerp(raw_normal, smooth);
     let smoothed = ground_state.normal_smooth.normalize_or(Vec3::Y);
 
     ground_state.grounded = grounded;
+    ground_state.raw_normal = raw_normal;
     ground_state.surface_normal = smoothed;
 }
 
@@ -282,13 +291,16 @@ fn apply_vehicle_forces(
 
     let grounded = ground.grounded;
     let surface_normal = ground.surface_normal;
+    let raw_normal = ground.raw_normal;
+    let car_down = car_rot * Vec3::NEG_Y;
+    let bottom_contact = car_down.dot(raw_normal) < -0.7;
 
     forces.apply_force(-Vec3::Y * config.downforce);
     forces.apply_force(-Vec3::Y * config.downforce * config.downforce_speed * speed);
 
     let lateral_vel = velocity.dot(right);
 
-    if grounded {
+    if bottom_contact {
         let abs_lateral = lateral_vel.abs();
         let slip_ratio = abs_lateral / config.slip_threshold;
 
@@ -317,27 +329,21 @@ fn apply_vehicle_forces(
 
     let boost = if input.boosting { 1.5 } else { 1.0 };
 
-    if grounded {
+    if bottom_contact {
         let surface_forward = (forward - forward.dot(surface_normal) * surface_normal)
             .normalize_or(forward);
         forces.apply_force(surface_forward * input.throttle * config.engine_force * boost);
-    } else {
-        forces.apply_force(forward * input.throttle * config.engine_force * boost * config.air_control_factor);
     }
 
-    if input.braking {
+    if input.braking && bottom_contact {
         forces.apply_force(-velocity.normalize_or(Vec3::ZERO) * config.brake_force);
     }
 
     let steer_strength = (forward_speed.abs() / config.steer_speed_response)
         .min(1.0)
         .max(0.0);
-    if steer_strength > 0.01 {
+    if steer_strength > 0.01 && bottom_contact {
         forces.apply_torque(car_rot * Vec3::Y * input.steer * config.steer_torque * steer_strength);
-    }
-
-    if input.roll != 0.0 {
-        forces.apply_torque(car_rot * Vec3::Z * input.roll * config.roll_torque);
     }
 
     forces.apply_force(-velocity * config.rolling_resistance);
@@ -351,12 +357,17 @@ fn apply_vehicle_forces(
 
 fn smooth_angular_velocity(
     ground: Res<GroundState>,
+    car_rot_query: Query<&Rotation, With<PlayerCar>>,
     mut query: Query<&mut AngularVelocity, With<PlayerCar>>,
 ) {
+    let Ok(car_rotation) = car_rot_query.single() else {
+        return;
+    };
     let Ok(mut ang_vel) = query.single_mut() else {
         return;
     };
-    if !ground.grounded {
+    let car_down = car_rotation.0 * Vec3::NEG_Y;
+    if !ground.grounded || car_down.dot(ground.raw_normal) >= -0.7 {
         return;
     }
     ang_vel.0 *= 0.6;
@@ -381,14 +392,6 @@ fn capture_input(keys: Res<ButtonInput<KeyCode>>, mut input: ResMut<CarInput>) {
 
     input.braking = keys.pressed(KeyCode::Space);
     input.boosting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-
-    input.roll = if keys.pressed(KeyCode::KeyQ) {
-        -1.0
-    } else if keys.pressed(KeyCode::KeyE) {
-        1.0
-    } else {
-        0.0
-    };
 }
 
 fn sync_car_state(

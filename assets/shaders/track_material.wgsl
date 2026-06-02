@@ -19,7 +19,7 @@ fn fragment(vertex_output: VertexOutput, @builtin(front_facing) is_front: bool) 
     let pos_hash = fract(sin(dot(world_pos.xz, vec2<f32>(12.9898, 78.233))) * 43758.5453);
     let height_var = smoothstep(0.0, 80.0, world_pos.y);
     let normal_weight = abs(normal.y) * variation.y + (1.0 - variation.y);
-    let color_var = mix(1.0 - variation.x, 1.0 + variation.x, pos_hash * 0.3) * normal_weight * mix(1.0 - variation.z, 1.0 + variation.z, height_var);
+    let color_var = mix(1.0, 1.0 + variation.x, pos_hash) * normal_weight * mix(1.0, 1.0 + variation.z, height_var);
 
     pbr_input.material.base_color = vec4<f32>(
         pbr_input.material.base_color.rgb * color_var,
