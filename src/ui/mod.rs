@@ -32,7 +32,7 @@ fn egui_panel(
     let sp = keys.pressed(KeyCode::Space);
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
-    let speed_kmh = telemetry.speed_history.last().copied().unwrap_or(0.0) * 3.6;
+    let speed_ms = telemetry.speed_history.last().copied().unwrap_or(0.0);
 
     egui::Area::new("bottom_left_keys".into())
         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
@@ -62,18 +62,18 @@ fn egui_panel(
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
         .show(ctx, |ui| {
             egui::Frame::default()
-                .fill(egui::Color32::BLACK)
+                .fill(egui::Color32::from_rgb(40, 40, 40))
                 .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 120, 120)))
                 .inner_margin(egui::Margin::symmetric(10, 6))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(format!("{}", speed_kmh as i32))
+                            egui::RichText::new(format!("{}", speed_ms as i32))
                                 .size(14.0)
                                 .color(egui::Color32::from_rgb(160, 160, 160)),
                         );
                         ui.label(
-                            egui::RichText::new("km/h")
+                            egui::RichText::new("m/s")
                                 .size(14.0)
                                 .color(egui::Color32::from_rgb(160, 160, 160)),
                         );

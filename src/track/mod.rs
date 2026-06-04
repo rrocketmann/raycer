@@ -1,46 +1,20 @@
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, MeshMaterial3d, StandardMaterial};
 use bevy::prelude::*;
 use avian3d::prelude::*;
-use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, GlobalAmbientLight, ShadowFilteringMethod};
-use bevy::render::render_resource::AsBindGroup;
-use bevy::shader::ShaderRef;
+use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, ShadowFilteringMethod};
 
 use crate::car::{Car, CarCamera, PlayerCar, VehicleData};
 
 const CAR_COLLIDER_SIZE: Vec3 = Vec3::new(0.73, 0.40, 1.35);
-const CAR_COLLIDER_OFFSET: Vec3 = Vec3::new(-0.365, 0.20, -0.675);
+const CAR_COLLIDER_OFFSET: Vec3 = Vec3::new(-0.365, 0.15, -0.675);
 
 #[derive(Component)]
 struct MapRoot;
-
-#[derive(Component)]
-struct TrackMaterialApplied;
-
-#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
-struct TrackExt {
-    #[uniform(100)]
-    variation: Vec4,
-}
-
-impl MaterialExtension for TrackExt {
-    fn fragment_shader() -> ShaderRef {
-        "shaders/track_material.wgsl".into()
-    }
-
-    fn deferred_fragment_shader() -> ShaderRef {
-        "shaders/track_material.wgsl".into()
-    }
-}
-
-type TrackMaterial = ExtendedMaterial<StandardMaterial, TrackExt>;
 
 pub struct TrackPlugin;
 
 impl Plugin for TrackPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<TrackMaterial>::default())
-            .add_systems(Startup, spawn_world)
-            .add_systems(Update, replace_map_materials);
+        app.add_systems(Startup, spawn_world);
     }
 }
 
@@ -66,7 +40,7 @@ fn spawn_world(
         CenterOfMass(Vec3::new(-0.365, 0.0, -0.675)),
         Friction::new(0.01),
         SweptCcd::NON_LINEAR,
-        Mass(15.0),
+        Mass(6.0),
         GravityScale(1.0),
         VehicleData::default(),
     ));
@@ -101,7 +75,7 @@ fn spawn_world(
             shadow_normal_bias: 0.7,
             ..default()
         },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.95, 0.6, 0.0)),
+        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
         CascadeShadowConfigBuilder {
             num_cascades: 4,
             minimum_distance: 0.1,
@@ -119,37 +93,4 @@ fn spawn_world(
         CarCamera,
         ShadowFilteringMethod::Gaussian,
     ));
-
-    commands.insert_resource(GlobalAmbientLight {
-        color: Color::srgb(0.8, 0.85, 1.0),
-        brightness: 0.08,
-        affects_lightmapped_meshes: true,
-    });
-}
-
-fn replace_map_materials(
-    map_query: Query<Entity, With<MapRoot>>,
-    children_query: Query<&Children>,
-    standard_materials: Res<Assets<StandardMaterial>>,
-    mut track_materials: ResMut<Assets<TrackMaterial>>,
-    mut commands: Commands,
-    material_query: Query<(Entity, &MeshMaterial3d<StandardMaterial>), Without<TrackMaterialApplied>>,
-) {
-    for map_entity in &map_query {
-        for child in children_query.iter_descendants(map_entity) {
-            if let Ok((entity, std_mat_handle)) = material_query.get(child) {
-                if let Some(std_mat) = standard_materials.get(&std_mat_handle.0) {
-                    let track_mat = TrackMaterial {
-                        base: std_mat.clone(),
-                        extension: TrackExt { variation: Vec4::new(0.3, 0.25, 0.2, 0.0) },
-                    };
-                    let track_handle = track_materials.add(track_mat);
-                    commands.entity(entity)
-                        .remove::<MeshMaterial3d<StandardMaterial>>()
-                        .insert(MeshMaterial3d(track_handle))
-                        .insert(TrackMaterialApplied);
-                }
-            }
-        }
-    }
 }

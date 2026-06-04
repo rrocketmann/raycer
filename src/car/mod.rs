@@ -20,6 +20,7 @@ impl Plugin for CarPlugin {
                 (
                     capture_input,
                     sync_car_state,
+                    clamp_speed,
                     camera_follow,
                     label_wheels,
                     animate_wheels,
@@ -101,6 +102,7 @@ pub struct VehiclePhysicsConfig {
     pub rolling_resistance: f32,
     pub drag_coefficient: f32,
     pub max_speed: f32,
+    pub boost_max_speed: f32,
     pub steer_smoothing: f32,
     pub max_steer_angle: f32,
     pub steer_speed_response: f32,
@@ -109,17 +111,18 @@ pub struct VehiclePhysicsConfig {
 impl Default for VehiclePhysicsConfig {
     fn default() -> Self {
         Self {
-            downforce: 80.0,
+            downforce: 30.0,
             downforce_speed: 0.02,
             lateral_stiffness: 300.0,
             slip_threshold: 4.0,
             kinetic_friction: 8000.0,
-            engine_force: 6000.0,
-            brake_force: 15000.0,
+            engine_force: 2400.0,
+            brake_force: 6000.0,
             steer_torque: 600.0,
             rolling_resistance: 3.0,
             drag_coefficient: 0.4,
-            max_speed: 40.0,
+            max_speed: 25.0,
+            boost_max_speed: 50.0,
             steer_smoothing: 10.0,
             max_steer_angle: 0.45,
             steer_speed_response: 25.0,
@@ -293,7 +296,7 @@ fn apply_vehicle_forces(
     let surface_normal = ground.surface_normal;
     let raw_normal = ground.raw_normal;
     let car_down = car_rot * Vec3::NEG_Y;
-    let bottom_contact = car_down.dot(raw_normal) < -0.7;
+    let bottom_contact = grounded && car_down.dot(raw_normal) < -0.7;
 
     forces.apply_force(-Vec3::Y * config.downforce);
     forces.apply_force(-Vec3::Y * config.downforce * config.downforce_speed * speed);
@@ -342,16 +345,18 @@ fn apply_vehicle_forces(
     let steer_strength = (forward_speed.abs() / config.steer_speed_response)
         .min(1.0)
         .max(0.0);
+    let steer_sign = if forward_speed < 0.0 { -1.0 } else { 1.0 };
     if steer_strength > 0.01 && bottom_contact {
-        forces.apply_torque(car_rot * Vec3::Y * input.steer * config.steer_torque * steer_strength);
+        forces.apply_torque(car_rot * Vec3::Y * input.steer * steer_sign * config.steer_torque * steer_strength);
     }
 
     forces.apply_force(-velocity * config.rolling_resistance);
     forces.apply_force(-velocity * speed * config.drag_coefficient);
 
-    if speed > config.max_speed {
-        let excess_drag = config.drag_coefficient + 2.0 * (speed - config.max_speed);
-        forces.apply_force(-velocity * excess_drag);
+    let effective_max = if input.boosting { config.boost_max_speed } else { config.max_speed };
+    if speed > effective_max {
+        let excess = speed - effective_max;
+        forces.apply_force(-velocity.normalize_or(Vec3::ZERO) * excess * 200.0);
     }
 }
 
@@ -371,6 +376,21 @@ fn smooth_angular_velocity(
         return;
     }
     ang_vel.0 *= 0.6;
+}
+
+fn clamp_speed(
+    input: Res<CarInput>,
+    config: Res<VehiclePhysicsConfig>,
+    mut vel_query: Query<&mut LinearVelocity, With<PlayerCar>>,
+) {
+    let Ok(mut vel) = vel_query.single_mut() else {
+        return;
+    };
+    let speed = vel.length();
+    let effective_max = if input.boosting { config.boost_max_speed } else { config.max_speed };
+    if speed > effective_max {
+        vel.0 = vel.0.normalize_or(Vec3::ZERO) * effective_max;
+    }
 }
 
 fn capture_input(keys: Res<ButtonInput<KeyCode>>, mut input: ResMut<CarInput>) {

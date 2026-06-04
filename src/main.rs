@@ -16,8 +16,8 @@ fn main() {
         ..default()
     };
 
-    App::new()
-        .add_plugins(DefaultPlugins.set(window_plugin))
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(window_plugin))
         .add_plugins(PhysicsPlugins::default())
         .insert_resource(Gravity(Vec3::NEG_Y * 120.0))
         .insert_resource(SubstepCount(12))
@@ -27,6 +27,10 @@ fn main() {
             ..default()
         })
         .add_plugins(bevy_egui::EguiPlugin::default())
-        .add_plugins((car::CarPlugin, track::TrackPlugin, ui::UiPlugin))
-        .run();
+        .add_plugins((car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
+
+    #[cfg(feature = "dev")]
+    app.add_plugins(avian3d::debug_render::PhysicsDebugPlugin);
+
+    app.run();
 }
