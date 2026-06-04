@@ -2,10 +2,7 @@ use bevy::prelude::*;
 use avian3d::prelude::*;
 use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, ShadowFilteringMethod};
 
-use crate::car::{Car, CarCamera, PlayerCar, VehicleData};
-
-const CAR_COLLIDER_SIZE: Vec3 = Vec3::new(0.73, 0.40, 1.35);
-const CAR_COLLIDER_OFFSET: Vec3 = Vec3::new(-0.365, 0.15, -0.675);
+use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData};
 
 #[derive(Component)]
 struct MapRoot;
@@ -22,7 +19,8 @@ fn spawn_world(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
-    let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/raceCarRed.glb"));
+    let def = &CAR_DEFS[0];
+    let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
     let car_root = commands.spawn((
         Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
@@ -32,12 +30,13 @@ fn spawn_world(
         LinearVelocity::ZERO,
         AngularVelocity::ZERO,
     )).id();
+    let half_height = def.collider.y * 0.5;
     commands.entity(car_root).insert((
         LinearDamping(0.5),
         AngularDamping(4.0),
         MaxLinearSpeed(50.0),
         MaxAngularSpeed(4.0),
-        CenterOfMass(Vec3::new(-0.365, 0.0, -0.675)),
+        CenterOfMass(Vec3::new(0.0, -half_height, 0.0)),
         Friction::new(0.01),
         SweptCcd::NON_LINEAR,
         Mass(6.0),
@@ -47,13 +46,11 @@ fn spawn_world(
 
     commands.entity(car_root).with_children(|parent| {
         parent.spawn((
-            Collider::cuboid(CAR_COLLIDER_SIZE.x, CAR_COLLIDER_SIZE.y, CAR_COLLIDER_SIZE.z),
-            Transform::from_translation(CAR_COLLIDER_OFFSET),
+            Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
+            Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
+            CarCollider,
         ));
-    });
-
-    commands.entity(car_root).with_children(|parent| {
-        parent.spawn(SceneRoot(car_scene));
+        parent.spawn((SceneRoot(car_scene), CarVisual));
     });
 
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));

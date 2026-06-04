@@ -1,6 +1,41 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+pub struct CarDef {
+    pub name: &'static str,
+    pub path: &'static str,
+    pub collider: Vec3,
+}
+
+pub const CAR_DEFS: &[CarDef] = &[
+    CarDef { name: "Race",           path: "models/race.glb",              collider: Vec3::new(1.20, 0.63, 2.56) },
+    CarDef { name: "Race Future",    path: "models/race-future.glb",       collider: Vec3::new(1.20, 0.63, 2.66) },
+    CarDef { name: "Hatchback",     path: "models/hatchback-sports.glb",  collider: Vec3::new(1.30, 0.95, 2.85) },
+    CarDef { name: "Sedan",          path: "models/sedan.glb",             collider: Vec3::new(1.50, 1.15, 2.55) },
+    CarDef { name: "Sedan Sport",    path: "models/sedan-sports.glb",      collider: Vec3::new(1.30, 0.95, 2.55) },
+    CarDef { name: "SUV",            path: "models/suv.glb",               collider: Vec3::new(1.50, 1.10, 2.55) },
+    CarDef { name: "SUV Luxury",     path: "models/suv-luxury.glb",        collider: Vec3::new(1.50, 1.18, 2.85) },
+    CarDef { name: "Taxi",           path: "models/taxi.glb",              collider: Vec3::new(1.50, 1.35, 2.75) },
+    CarDef { name: "Police",         path: "models/police.glb",            collider: Vec3::new(1.50, 1.10, 2.90) },
+    CarDef { name: "Ambulance",      path: "models/ambulance.glb",         collider: Vec3::new(1.50, 1.60, 3.25) },
+    CarDef { name: "Delivery",       path: "models/delivery.glb",          collider: Vec3::new(1.50, 1.50, 3.25) },
+    CarDef { name: "Delivery Flat",  path: "models/delivery-flat.glb",      collider: Vec3::new(1.50, 1.20, 3.25) },
+    CarDef { name: "Van",            path: "models/van.glb",               collider: Vec3::new(1.50, 1.20, 2.75) },
+    CarDef { name: "Truck",          path: "models/truck.glb",             collider: Vec3::new(1.50, 1.15, 2.95) },
+    CarDef { name: "Truck Flat",     path: "models/truck-flat.glb",        collider: Vec3::new(1.50, 1.15, 2.75) },
+    CarDef { name: "Firetruck",      path: "models/firetruck.glb",         collider: Vec3::new(1.50, 1.50, 3.25) },
+    CarDef { name: "Garbage",        path: "models/garbage-truck.glb",     collider: Vec3::new(1.50, 1.48, 3.45) },
+    CarDef { name: "Tractor",        path: "models/tractor.glb",           collider: Vec3::new(1.34, 1.41, 1.98) },
+    CarDef { name: "Tractor Police", path: "models/tractor-police.glb",    collider: Vec3::new(1.34, 1.51, 1.98) },
+    CarDef { name: "Tractor Shovel", path: "models/tractor-shovel.glb",    collider: Vec3::new(1.46, 1.34, 2.00) },
+];
+
+#[derive(Resource, Default)]
+pub struct CarSelection {
+    pub index: usize,
+    pub pending_change: bool,
+}
+
 pub struct CarPlugin;
 
 impl Plugin for CarPlugin {
@@ -11,6 +46,7 @@ impl Plugin for CarPlugin {
             .init_resource::<CarState>()
             .init_resource::<Telemetry>()
             .init_resource::<GroundState>()
+            .init_resource::<CarSelection>()
             .add_systems(
                 FixedPostUpdate,
                 (ground_detection_system, apply_vehicle_forces, smooth_angular_velocity).chain().in_set(PhysicsSystems::Prepare),
@@ -26,6 +62,7 @@ impl Plugin for CarPlugin {
                     animate_wheels,
                     record_telemetry,
                     respawn_car,
+                    switch_car_model,
                 ),
             );
     }
@@ -52,6 +89,7 @@ pub struct VehicleData {
     pub surface_normal: Vec3,
     pub grounded: bool,
     pub forward_speed: f32,
+    pub drifting: bool,
 }
 
 impl Default for VehicleData {
@@ -64,6 +102,7 @@ impl Default for VehicleData {
             surface_normal: Vec3::Y,
             grounded: false,
             forward_speed: 0.0,
+            drifting: false,
         }
     }
 }
@@ -96,6 +135,8 @@ pub struct VehiclePhysicsConfig {
     pub lateral_stiffness: f32,
     pub slip_threshold: f32,
     pub kinetic_friction: f32,
+    pub drift_grip_mult: f32,
+    pub drift_steer_mult: f32,
     pub engine_force: f32,
     pub brake_force: f32,
     pub steer_torque: f32,
@@ -113,9 +154,11 @@ impl Default for VehiclePhysicsConfig {
         Self {
             downforce: 30.0,
             downforce_speed: 0.02,
-            lateral_stiffness: 300.0,
+            lateral_stiffness: 150.0,
             slip_threshold: 4.0,
-            kinetic_friction: 8000.0,
+            kinetic_friction: 3000.0,
+            drift_grip_mult: 0.3,
+            drift_steer_mult: 2.0,
             engine_force: 2400.0,
             brake_force: 6000.0,
             steer_torque: 600.0,
@@ -152,6 +195,7 @@ pub struct CarState {
     pub braking: bool,
     pub boosting: bool,
     pub skidding: bool,
+    pub drifting: bool,
     pub prev_speed: f32,
 }
 
@@ -303,18 +347,22 @@ fn apply_vehicle_forces(
 
     let lateral_vel = velocity.dot(right);
 
+    let drifting = input.braking && input.steer.abs() > 0.01 && bottom_contact && forward_speed.abs() > 3.0;
+    let grip_mult = if drifting { config.drift_grip_mult } else { 1.0 };
+    let steer_mult = if drifting { config.drift_steer_mult } else { 1.0 };
+
     if bottom_contact {
         let abs_lateral = lateral_vel.abs();
         let slip_ratio = abs_lateral / config.slip_threshold;
 
         let lateral_force_mag = if abs_lateral < config.slip_threshold {
             vehicle_data.grip_state = GripState::Static;
-            (config.lateral_stiffness * abs_lateral).min(config.lateral_stiffness * config.slip_threshold)
+            (config.lateral_stiffness * abs_lateral * grip_mult).min(config.lateral_stiffness * config.slip_threshold)
         } else {
             vehicle_data.grip_state = GripState::Kinetic;
-            let peak = config.lateral_stiffness * config.slip_threshold;
+            let peak = config.lateral_stiffness * config.slip_threshold * grip_mult;
             let excess = slip_ratio - 1.0;
-            peak / (1.0 + excess) + config.kinetic_friction * excess / (1.0 + excess)
+            peak / (1.0 + excess) + config.kinetic_friction * grip_mult * excess / (1.0 + excess)
         };
 
         forces.apply_force(-right * lateral_vel.signum() * lateral_force_mag);
@@ -329,6 +377,7 @@ fn apply_vehicle_forces(
     vehicle_data.surface_normal = surface_normal;
     vehicle_data.grounded = grounded;
     vehicle_data.forward_speed = forward_speed;
+    vehicle_data.drifting = drifting;
 
     let boost = if input.boosting { 1.5 } else { 1.0 };
 
@@ -339,7 +388,8 @@ fn apply_vehicle_forces(
     }
 
     if input.braking && bottom_contact {
-        forces.apply_force(-velocity.normalize_or(Vec3::ZERO) * config.brake_force);
+        let brake_mult = if drifting { 0.3 } else { 1.0 };
+        forces.apply_force(-velocity.normalize_or(Vec3::ZERO) * config.brake_force * brake_mult);
     }
 
     let steer_strength = (forward_speed.abs() / config.steer_speed_response)
@@ -347,7 +397,7 @@ fn apply_vehicle_forces(
         .max(0.0);
     let steer_sign = if forward_speed < 0.0 { -1.0 } else { 1.0 };
     if steer_strength > 0.01 && bottom_contact {
-        forces.apply_torque(car_rot * Vec3::Y * input.steer * steer_sign * config.steer_torque * steer_strength);
+        forces.apply_torque(car_rot * Vec3::Y * input.steer * steer_sign * config.steer_torque * steer_strength * steer_mult);
     }
 
     forces.apply_force(-velocity * config.rolling_resistance);
@@ -446,6 +496,7 @@ fn sync_car_state(
     car_state.braking = input.braking;
     car_state.boosting = input.boosting;
     car_state.skidding = input.braking || is_drifting;
+    car_state.drifting = vehicle_data.iter().next().map_or(false, |d| d.drifting);
 }
 
 fn camera_follow(
@@ -476,20 +527,21 @@ fn label_wheels(
         let mut found_wheels = false;
         for child in children_query.iter_descendants(car_entity) {
             if let Ok(name) = name_query.get(child) {
-                match name.as_str() {
-                    "wheelFrontLeft" => {
+                let lower = name.to_lowercase().replace('-', "").replace('_', "");
+                match lower.as_str() {
+                    "wheelfrontleft" | "fl" => {
                         commands.entity(child).insert(WheelFrontLeft);
                         found_wheels = true;
                     }
-                    "wheelFrontRight" => {
+                    "wheelfrontright" | "fr" => {
                         commands.entity(child).insert(WheelFrontRight);
                         found_wheels = true;
                     }
-                    "wheelBackLeft" => {
+                    "wheelbackleft" | "wheelrearleft" | "bl" => {
                         commands.entity(child).insert(WheelRearLeft);
                         found_wheels = true;
                     }
-                    "wheelBackRight" => {
+                    "wheelbackright" | "wheelrearright" | "br" => {
                         commands.entity(child).insert(WheelRearRight);
                         found_wheels = true;
                     }
@@ -596,5 +648,56 @@ fn respawn_car(
         lin_vel.0 = Vec3::ZERO;
         ang_vel.0 = Vec3::ZERO;
     }
+}
+
+#[derive(Component)]
+pub struct CarVisual;
+
+#[derive(Component)]
+pub struct CarCollider;
+
+fn switch_car_model(
+    mut selection: ResMut<CarSelection>,
+    car_query: Query<Entity, With<PlayerCar>>,
+    visual_query: Query<Entity, With<CarVisual>>,
+    collider_query: Query<Entity, With<CarCollider>>,
+    children_query: Query<&Children>,
+    wheel_query: Query<Entity, Or<(With<WheelFrontLeft>, With<WheelFrontRight>, With<WheelRearLeft>, With<WheelRearRight>)>>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    if !selection.pending_change {
+        return;
+    }
+    selection.pending_change = false;
+
+    let Ok(car_entity) = car_query.single() else {
+        return;
+    };
+
+    for child in children_query.iter_descendants(car_entity) {
+        if visual_query.get(child).is_ok() {
+            commands.entity(child).despawn();
+        }
+        if wheel_query.get(child).is_ok() {
+            commands.entity(child).despawn();
+        }
+        if collider_query.get(child).is_ok() {
+            commands.entity(child).despawn();
+        }
+    }
+
+    commands.entity(car_entity).remove::<WheelsLabeled>();
+
+    let def = &CAR_DEFS[selection.index];
+    let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
+    commands.entity(car_entity).with_children(|parent| {
+        parent.spawn((
+            Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
+            Transform::from_translation(Vec3::new(0.0, def.collider.y * 0.5, 0.0)),
+            CarCollider,
+        ));
+        parent.spawn((SceneRoot(car_scene), CarVisual));
+    });
 }
 
