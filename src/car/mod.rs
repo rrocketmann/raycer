@@ -1,5 +1,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy::input::mouse::{MouseWheel, MouseMotion};
+use bevy::ecs::message::MessageReader;
 
 pub struct CarDef {
     pub name: &'static str,
@@ -49,20 +51,22 @@ impl Plugin for CarPlugin {
             .init_resource::<CarSelection>()
             .init_resource::<SkidMarkResources>()
             .init_resource::<SkidTrailState>()
+            .init_resource::<SmokeResources>()
+            .init_resource::<CameraState>()
             .add_systems(
                 FixedPostUpdate,
                 (ground_detection_system, apply_vehicle_forces, smooth_angular_velocity).chain().in_set(PhysicsSystems::Prepare),
             )
+            .add_systems(Update, capture_input)
+            .add_systems(Update, camera_input)
+            .add_systems(Update, (sync_car_state, clamp_speed, camera_follow))
             .add_systems(
                 Update,
                 (
-                    capture_input,
-                    sync_car_state,
-                    clamp_speed,
-                    camera_follow,
                     label_wheels,
                     spawn_skid_marks.after(label_wheels),
                     fade_skid_marks,
+                    fade_smoke_puffs,
                     animate_wheels,
                     record_telemetry,
                     respawn_car,
@@ -191,6 +195,27 @@ pub struct CarInput {
     pub boosting: bool,
     pub roll: f32,
     pub roll_time: f32,
+}
+
+#[derive(Resource)]
+pub struct CameraState {
+    pub zoom: f32,
+    pub orbit_yaw: f32,
+    pub orbit_pitch: f32,
+    pub orbiting: bool,
+    pub returning: bool,
+}
+
+impl Default for CameraState {
+    fn default() -> Self {
+        Self {
+            zoom: 0.0,
+            orbit_yaw: 0.0,
+            orbit_pitch: 0.0,
+            orbiting: false,
+            returning: false,
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -464,12 +489,12 @@ fn capture_input(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, mut input: Re
         0.0
     };
 
-    input.steer = if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
-        1.0
-    } else if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
-        -1.0
-    } else {
-        0.0
+    let left = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
+    let right = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
+    input.steer = match (left, right) {
+        (true, false) => 1.0,
+        (false, true) => -1.0,
+        _ => 0.0,
     };
 
     input.braking = keys.pressed(KeyCode::Space);
@@ -524,9 +549,41 @@ fn sync_car_state(
     car_state.drifting = vehicle_data.iter().next().map_or(false, |d| d.drifting);
 }
 
+fn camera_input(
+    mut cam_state: ResMut<CameraState>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mut scroll_events: MessageReader<MouseWheel>,
+    mut motion_events: MessageReader<MouseMotion>,
+) {
+    for ev in scroll_events.read() {
+        cam_state.zoom = (cam_state.zoom + ev.y * 0.5).clamp(0.0, 12.0);
+    }
+
+    if mouse_buttons.just_pressed(MouseButton::Right) {
+        cam_state.orbiting = true;
+        cam_state.returning = false;
+    }
+
+    if cam_state.orbiting {
+        for ev in motion_events.read() {
+            cam_state.orbit_yaw += ev.delta.x * 0.005;
+            cam_state.orbit_pitch += ev.delta.y * 0.005;
+        }
+        cam_state.orbit_pitch = cam_state.orbit_pitch.clamp(-1.2, 1.2);
+    } else {
+        for _ in motion_events.read() {}
+    }
+
+    if mouse_buttons.just_released(MouseButton::Right) {
+        cam_state.orbiting = false;
+        cam_state.returning = true;
+    }
+}
+
 fn camera_follow(
     car_query: Query<(&Rotation, &Position), With<PlayerCar>>,
     mut cam_query: Query<&mut Transform, (With<CarCamera>, Without<PlayerCar>)>,
+    mut cam_state: ResMut<CameraState>,
 ) {
     let Some((car_rot, car_pos)) = car_query.iter().next() else {
         return;
@@ -534,10 +591,35 @@ fn camera_follow(
 
     let facing = *car_rot * Vec3::Z;
     let flat = Vec3::new(facing.x, 0.0, facing.z).normalize_or(Vec3::Z);
-    let target = car_pos.0 - flat * 14.0 + Vec3::new(0.0, 8.0, 0.0);
+    let distance = (14.0 - cam_state.zoom).max(2.0);
+
+    if !cam_state.orbiting && cam_state.returning {
+        cam_state.orbit_yaw *= 0.92;
+        cam_state.orbit_pitch *= 0.92;
+        if cam_state.orbit_yaw.abs() < 0.01 && cam_state.orbit_pitch.abs() < 0.01 {
+            cam_state.orbit_yaw = 0.0;
+            cam_state.orbit_pitch = 0.0;
+            cam_state.returning = false;
+        }
+    }
+
+    let target = if cam_state.orbiting || cam_state.returning {
+        let right = flat.cross(Vec3::Y);
+        let default_dir = -flat;
+        let yaw_rot = Quat::from_axis_angle(Vec3::Y, cam_state.orbit_yaw);
+        let pitch_rot = Quat::from_axis_angle(right, cam_state.orbit_pitch);
+        let dir = pitch_rot * yaw_rot * default_dir;
+        let height = 8.0 + distance * cam_state.orbit_pitch.sin() * 0.3;
+        car_pos.0 + dir * distance + Vec3::new(0.0, height, 0.0)
+    } else {
+        let height = (8.0 - cam_state.zoom * 0.2).max(2.0);
+        car_pos.0 - flat * distance + Vec3::new(0.0, height, 0.0)
+    };
+
+    let lerp = if cam_state.orbiting { 0.9 } else { 0.08 };
 
     for mut cam in cam_query.iter_mut() {
-        cam.translation = cam.translation.lerp(target, 0.08);
+        cam.translation = cam.translation.lerp(target, lerp);
         cam.look_at(car_pos.0 + Vec3::new(0.0, 1.5, 0.0), Vec3::Y);
     }
 }
@@ -552,6 +634,28 @@ const SKID_MARK_LIFETIME: f32 = 3.0;
 #[derive(Resource)]
 pub struct SkidMarkResources {
     pub mesh: Handle<Mesh>,
+}
+
+#[derive(Component)]
+pub struct SmokePuff {
+    pub lifetime: f32,
+    pub max_lifetime: f32,
+    pub start_scale: f32,
+    pub end_scale: f32,
+}
+
+#[derive(Resource)]
+pub struct SmokeResources {
+    pub mesh: Handle<Mesh>,
+}
+
+impl FromWorld for SmokeResources {
+    fn from_world(world: &mut World) -> Self {
+        let asset_server = world.resource::<AssetServer>();
+        SmokeResources {
+            mesh: asset_server.load("models/smoke.glb#Mesh0/Primitive0"),
+        }
+    }
 }
 
 impl FromWorld for SkidMarkResources {
@@ -648,6 +752,88 @@ fn fade_skid_marks(
             commands.entity(entity).despawn();
         } else if let Some(mat) = materials.get_mut(mat_handle.id()) {
             mat.base_color.set_alpha((mark.lifetime / SKID_MARK_LIFETIME).clamp(0.0, 1.0));
+        }
+    }
+}
+
+fn car_smoke_trail(
+    car_state: Res<CarState>,
+    rear_left: Query<&GlobalTransform, (With<WheelRearLeft>, Without<PlayerCar>)>,
+    rear_right: Query<&GlobalTransform, (With<WheelRearRight>, Without<PlayerCar>)>,
+    mut commands: Commands,
+    smoke_res: Res<SmokeResources>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    time: Res<Time>,
+    mut timer: Local<f32>,
+) {
+    if car_state.speed.abs() < 1.0 {
+        *timer = 0.0;
+        return;
+    }
+    *timer -= time.delta_secs();
+    if *timer > 0.0 {
+        return;
+    }
+    *timer = 0.08;
+
+    let spawn = |commands: &mut Commands,
+                 materials: &mut Assets<StandardMaterial>,
+                 mesh: &Handle<Mesh>,
+                 wheel_pos: Option<Vec3>|
+     -> () {
+        let Some(pos) = wheel_pos else { return };
+        let mat = materials.add(StandardMaterial {
+            base_color: Color::srgba(0.6, 0.6, 0.6, 0.5),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        });
+        commands.spawn((
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(pos.x, 0.1, pos.z)).with_scale(Vec3::splat(0.3)),
+            SmokePuff {
+                lifetime: 0.8,
+                max_lifetime: 0.8,
+                start_scale: 0.3,
+                end_scale: 1.2,
+            },
+        ));
+    };
+
+    spawn(
+        &mut commands,
+        &mut materials,
+        &smoke_res.mesh,
+        rear_left.iter().next().map(|t| t.translation()),
+    );
+    spawn(
+        &mut commands,
+        &mut materials,
+        &smoke_res.mesh,
+        rear_right.iter().next().map(|t| t.translation()),
+    );
+}
+
+fn fade_smoke_puffs(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut SmokePuff, &mut Transform, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut puff, mut transform, mat_handle) in q.iter_mut() {
+        puff.lifetime -= dt;
+        if puff.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let t = 1.0 - puff.lifetime / puff.max_lifetime;
+        let s = puff.start_scale + (puff.end_scale - puff.start_scale) * t;
+        transform.scale = Vec3::splat(s);
+        transform.translation.y += 1.5 * dt;
+        if let Some(mat) = materials.get_mut(mat_handle.id()) {
+            let a = (1.0 - t * 0.8).clamp(0.0, 1.0);
+            mat.base_color.set_alpha(a);
         }
     }
 }

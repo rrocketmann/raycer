@@ -4,12 +4,14 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::car::{CarSelection, CarState, CAR_DEFS, PlayerCar};
 use crate::car::Telemetry;
+use crate::blaster::{BlasterSelection, BLASTER_DEFS};
 
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CarDropdownOpen>()
+            .init_resource::<BlasterDropdownOpen>()
             .add_systems(EguiPrimaryContextPass, egui_panel);
     }
 }
@@ -17,12 +19,17 @@ impl Plugin for UiPlugin {
 #[derive(Resource, Default)]
 struct CarDropdownOpen(bool);
 
+#[derive(Resource, Default)]
+struct BlasterDropdownOpen(bool);
+
 fn egui_panel(
     mut contexts: EguiContexts,
     telemetry: Res<Telemetry>,
     _car_state: Res<CarState>,
     mut car_selection: ResMut<CarSelection>,
     mut dropdown: ResMut<CarDropdownOpen>,
+    mut blaster_selection: ResMut<BlasterSelection>,
+    mut blaster_dropdown: ResMut<BlasterDropdownOpen>,
     _car_query: Query<&Rotation, With<PlayerCar>>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
@@ -127,6 +134,64 @@ fn egui_panel(
             });
     }
 
+    let blaster_name = BLASTER_DEFS[blaster_selection.index].name;
+    let blaster_select_width = 130.0;
+    let blaster_item_h = 20.0;
+    let blaster_total = BLASTER_DEFS.len() as f32;
+    let blaster_drop_h = if blaster_dropdown.0 {
+        (blaster_total * blaster_item_h).min(8.0 * blaster_item_h)
+    } else {
+        0.0
+    };
+
+    let blaster_x = 136.0;
+
+    egui::Area::new("blaster_selector".into())
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(blaster_x, -12.0 - blaster_drop_h))
+        .show(ctx, |ui| {
+            let b_resp = ui.add_sized(
+                [blaster_select_width, 22.0],
+                egui::Button::new(
+                    egui::RichText::new(blaster_name).size(12.0).color(egui::Color32::from_rgb(220, 220, 220)),
+                ),
+            );
+            if b_resp.clicked() {
+                blaster_dropdown.0 = !blaster_dropdown.0;
+            }
+        });
+
+    if blaster_dropdown.0 {
+        egui::Area::new("blaster_dropdown".into())
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(blaster_x, -12.0 - 22.0))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(8.0 * blaster_item_h)
+                    .id_salt("blaster_list_scroll")
+                    .show(ui, |ui| {
+                        ui.set_width(blaster_select_width);
+                        for (i, def) in BLASTER_DEFS.iter().enumerate() {
+                            let selected = i == blaster_selection.index;
+                            let (bg, fg) = if selected {
+                                (egui::Color32::from_rgb(100, 200, 255), egui::Color32::BLACK)
+                            } else {
+                                (egui::Color32::from_rgb(35, 35, 35), egui::Color32::from_rgb(200, 200, 200))
+                            };
+                            let item_resp = ui.add_sized(
+                                [blaster_select_width, blaster_item_h],
+                                egui::Button::new(
+                                    egui::RichText::new(def.name).size(12.0).color(fg),
+                                ).fill(bg).stroke(egui::Stroke::NONE),
+                            );
+                            if item_resp.clicked() && i != blaster_selection.index {
+                                blaster_selection.index = i;
+                                blaster_selection.pending_change = true;
+                                blaster_dropdown.0 = false;
+                            }
+                        }
+                    });
+            });
+    }
+
     egui::Area::new("bottom_right_speed".into())
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
         .show(ctx, |ui| {
@@ -153,6 +218,7 @@ fn egui_panel(
 
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         dropdown.0 = false;
+        blaster_dropdown.0 = false;
     }
 }
 
