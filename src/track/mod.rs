@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use avian3d::prelude::*;
 use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, ShadowFilteringMethod};
-
 use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData};
 
 #[derive(Component)]
@@ -33,10 +32,10 @@ fn spawn_world(
     let half_height = def.collider.y * 0.5;
     commands.entity(car_root).insert((
         LinearDamping(0.5),
-        AngularDamping(4.0),
+        AngularDamping(1.0),
         MaxLinearSpeed(50.0),
         MaxAngularSpeed(4.0),
-        CenterOfMass(Vec3::new(0.0, -half_height, 0.0)),
+        CenterOfMass(Vec3::ZERO),
         Friction::new(0.01),
         SweptCcd::NON_LINEAR,
         Mass(6.0),
@@ -86,7 +85,11 @@ fn spawn_world(
 
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 8.0, -15.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Projection::Perspective(PerspectiveProjection {
+            fov: 1.2,
+            ..default()
+        }),
+        Transform::from_xyz(0.0, 8.0, -22.0).looking_at(Vec3::ZERO, Vec3::Y),
         CarCamera,
         ShadowFilteringMethod::Gaussian,
     ));

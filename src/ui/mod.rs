@@ -37,20 +37,23 @@ fn egui_panel(
     let d = keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight);
     let sp = keys.pressed(KeyCode::Space);
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let q = keys.pressed(KeyCode::KeyQ);
+    let e = keys.pressed(KeyCode::KeyE);
 
     let speed_ms = telemetry.speed_history.last().copied().unwrap_or(0.0);
 
-    let key_w = 32.0;
-    let key_h = 32.0;
-    let gap = 3.0;
+    let key_w = 28.0;
+    let key_h = 28.0;
+    let gap = 4.0;
 
     egui::Area::new("bottom_left_keys".into())
         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
             ui.horizontal(|ui| {
-                ui.add_space(key_w + gap);
+                draw_key(ui, "Q", q, key_w, key_h);
                 draw_key(ui, "W", w, key_w, key_h);
+                draw_key(ui, "E", e, key_w, key_h);
             });
             ui.horizontal(|ui| {
                 draw_key(ui, "A", a, key_w, key_h);
@@ -130,6 +133,7 @@ fn egui_panel(
             egui::Frame::default()
                 .fill(egui::Color32::from_rgb(40, 40, 40))
                 .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 120, 120)))
+                .corner_radius(2.0)
                 .inner_margin(egui::Margin::symmetric(10, 6))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -163,9 +167,10 @@ fn draw_key(ui: &mut egui::Ui, label: &str, pressed: bool, width: f32, height: f
     } else {
         egui::Color32::from_rgb(220, 220, 220)
     };
+    let radius = 2.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, bg);
-    painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 70, 70)), egui::StrokeKind::Outside);
-    painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(14.0), fg);
+    painter.rect_filled(rect, radius, bg);
+    painter.rect_stroke(rect, radius, egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 70, 70)), egui::StrokeKind::Outside);
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(12.0), fg);
 }
