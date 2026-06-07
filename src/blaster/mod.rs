@@ -28,10 +28,20 @@ pub const BLASTER_DEFS: &[BlasterDef] = &[
     BlasterDef { name: "Blaster R", path: "models/blaster-r.glb" },
 ];
 
-#[derive(Resource, Default)]
+const BLASTER_MOUNT: Vec3 = Vec3::new(0.0, 1.2, 0.0);
+const BLASTER_SCALE: f32 = 2.0;
+const BLASTER_PIVOT: Vec3 = Vec3::new(0.0, 0.1, 0.2);
+
+#[derive(Resource)]
 pub struct BlasterSelection {
     pub index: usize,
     pub pending_change: bool,
+}
+
+impl Default for BlasterSelection {
+    fn default() -> Self {
+        Self { index: 0, pending_change: true }
+    }
 }
 
 #[derive(Component)]
@@ -42,31 +52,11 @@ pub struct BlasterPlugin;
 impl Plugin for BlasterPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BlasterSelection>()
-            .add_systems(Startup, spawn_initial_blaster)
             .add_systems(Update, (
                 switch_blaster,
                 aim_blaster,
             ));
     }
-}
-
-fn spawn_initial_blaster(
-    mut commands: Commands,
-    car_query: Query<Entity, With<PlayerCar>>,
-    asset_server: Res<AssetServer>,
-) {
-    let Ok(car_entity) = car_query.single() else {
-        return;
-    };
-    let def = &BLASTER_DEFS[0];
-    let scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
-    commands.entity(car_entity).with_children(|parent| {
-        parent.spawn((
-            SceneRoot(scene),
-            Transform::from_translation(Vec3::new(0.0, 1.2, 0.0)).with_scale(Vec3::splat(2.0)),
-            BlasterVisual,
-        ));
-    });
 }
 
 fn aim_blaster(
@@ -96,7 +86,11 @@ fn aim_blaster(
     let yaw = f32::atan2(-local_dir.x, -local_dir.z);
     let horiz_len = Vec2::new(local_dir.x, local_dir.z).length();
     let pitch = f32::atan2(local_dir.y, horiz_len);
-    blaster.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+
+    let rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+    let pivot_offset = blaster.scale.x * BLASTER_PIVOT;
+    blaster.translation = BLASTER_MOUNT - rotation * pivot_offset;
+    blaster.rotation = rotation;
 }
 
 fn switch_blaster(
@@ -124,10 +118,11 @@ fn switch_blaster(
 
     let def = &BLASTER_DEFS[selection.index];
     let scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
+    let translation = BLASTER_MOUNT - BLASTER_SCALE * BLASTER_PIVOT;
     commands.entity(car_entity).with_children(|parent| {
         parent.spawn((
             SceneRoot(scene),
-            Transform::from_translation(Vec3::new(0.0, 1.2, 0.0)).with_scale(Vec3::splat(2.0)),
+            Transform::from_translation(translation).with_scale(Vec3::splat(BLASTER_SCALE)),
             BlasterVisual,
         ));
     });

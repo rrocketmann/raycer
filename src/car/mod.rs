@@ -19,13 +19,13 @@ pub const CAR_DEFS: &[CarDef] = &[
     CarDef { name: "SUV Luxury",     path: "models/suv-luxury.glb",        collider: Vec3::new(1.50, 1.18, 2.85) },
     CarDef { name: "Taxi",           path: "models/taxi.glb",              collider: Vec3::new(1.50, 1.35, 2.75) },
     CarDef { name: "Police",         path: "models/police.glb",            collider: Vec3::new(1.50, 1.10, 2.90) },
-    CarDef { name: "Ambulance",      path: "models/ambulance.glb",         collider: Vec3::new(1.50, 1.60, 3.25) },
-    CarDef { name: "Delivery",       path: "models/delivery.glb",          collider: Vec3::new(1.50, 1.50, 3.25) },
+    CarDef { name: "Ambulance",      path: "models/ambulance.glb",          collider: Vec3::new(1.50, 1.60, 3.25) },
+    CarDef { name: "Delivery",       path: "models/delivery.glb",           collider: Vec3::new(1.50, 1.50, 3.25) },
     CarDef { name: "Delivery Flat",  path: "models/delivery-flat.glb",      collider: Vec3::new(1.50, 1.20, 3.25) },
     CarDef { name: "Van",            path: "models/van.glb",               collider: Vec3::new(1.50, 1.20, 2.75) },
     CarDef { name: "Truck",          path: "models/truck.glb",             collider: Vec3::new(1.50, 1.15, 2.95) },
     CarDef { name: "Truck Flat",     path: "models/truck-flat.glb",        collider: Vec3::new(1.50, 1.15, 2.75) },
-    CarDef { name: "Firetruck",      path: "models/firetruck.glb",         collider: Vec3::new(1.50, 1.50, 3.25) },
+    CarDef { name: "Firetruck",      path: "models/firetruck.glb",          collider: Vec3::new(1.50, 1.50, 3.25) },
     CarDef { name: "Garbage",        path: "models/garbage-truck.glb",     collider: Vec3::new(1.50, 1.48, 3.45) },
     CarDef { name: "Tractor",        path: "models/tractor.glb",           collider: Vec3::new(1.34, 1.41, 1.98) },
     CarDef { name: "Tractor Police", path: "models/tractor-police.glb",    collider: Vec3::new(1.34, 1.51, 1.98) },
@@ -49,9 +49,6 @@ impl Plugin for CarPlugin {
             .init_resource::<Telemetry>()
             .init_resource::<GroundState>()
             .init_resource::<CarSelection>()
-            .init_resource::<SkidMarkResources>()
-            .init_resource::<SkidTrailState>()
-            .init_resource::<SmokeResources>()
             .init_resource::<CameraState>()
             .add_systems(
                 FixedPostUpdate,
@@ -64,9 +61,6 @@ impl Plugin for CarPlugin {
                 Update,
                 (
                     label_wheels,
-                    spawn_skid_marks.after(label_wheels),
-                    fade_skid_marks,
-                    fade_smoke_puffs,
                     animate_wheels,
                     record_telemetry,
                     respawn_car,
@@ -97,7 +91,6 @@ pub struct VehicleData {
     pub surface_normal: Vec3,
     pub grounded: bool,
     pub forward_speed: f32,
-    pub drifting: bool,
 }
 
 impl Default for VehicleData {
@@ -110,7 +103,6 @@ impl Default for VehicleData {
             surface_normal: Vec3::Y,
             grounded: false,
             forward_speed: 0.0,
-            drifting: false,
         }
     }
 }
@@ -143,8 +135,6 @@ pub struct VehiclePhysicsConfig {
     pub lateral_stiffness: f32,
     pub slip_threshold: f32,
     pub kinetic_friction: f32,
-    pub drift_grip_mult: f32,
-    pub drift_steer_mult: f32,
     pub engine_force: f32,
     pub brake_force: f32,
     pub steer_torque: f32,
@@ -165,8 +155,6 @@ impl Default for VehiclePhysicsConfig {
             lateral_stiffness: 150.0,
             slip_threshold: 4.0,
             kinetic_friction: 3000.0,
-            drift_grip_mult: 0.15,
-            drift_steer_mult: 5.0,
             engine_force: 2400.0,
             brake_force: 6000.0,
             steer_torque: 600.0,
@@ -225,8 +213,6 @@ pub struct CarState {
     pub position: Vec3,
     pub braking: bool,
     pub boosting: bool,
-    pub skidding: bool,
-    pub drifting: bool,
     pub prev_speed: f32,
 }
 
@@ -378,24 +364,18 @@ fn apply_vehicle_forces(
 
     let lateral_vel = velocity.dot(right);
 
-    let was_drifting = vehicle_data.drifting;
-    let drift_threshold = if was_drifting { 1.0 } else { 4.0 };
-    let drifting = input.braking && input.steer.abs() > 0.01 && bottom_contact && speed > drift_threshold;
-    let grip_mult = if drifting { config.drift_grip_mult } else { 1.0 };
-    let steer_mult = if drifting { config.drift_steer_mult } else { 1.0 };
-
     if bottom_contact {
         let abs_lateral = lateral_vel.abs();
         let slip_ratio = abs_lateral / config.slip_threshold;
 
         let lateral_force_mag = if abs_lateral < config.slip_threshold {
             vehicle_data.grip_state = GripState::Static;
-            (config.lateral_stiffness * abs_lateral * grip_mult).min(config.lateral_stiffness * config.slip_threshold)
+            (config.lateral_stiffness * abs_lateral).min(config.lateral_stiffness * config.slip_threshold)
         } else {
             vehicle_data.grip_state = GripState::Kinetic;
-            let peak = config.lateral_stiffness * config.slip_threshold * grip_mult;
+            let peak = config.lateral_stiffness * config.slip_threshold;
             let excess = slip_ratio - 1.0;
-            peak / (1.0 + excess) + config.kinetic_friction * grip_mult * excess / (1.0 + excess)
+            peak / (1.0 + excess) + config.kinetic_friction * excess / (1.0 + excess)
         };
 
         forces.apply_force(-right * lateral_vel.signum() * lateral_force_mag);
@@ -410,7 +390,6 @@ fn apply_vehicle_forces(
     vehicle_data.surface_normal = surface_normal;
     vehicle_data.grounded = grounded;
     vehicle_data.forward_speed = forward_speed;
-    vehicle_data.drifting = drifting;
 
     let boost = if input.boosting { 1.5 } else { 1.0 };
 
@@ -421,8 +400,7 @@ fn apply_vehicle_forces(
     }
 
     if input.braking && bottom_contact {
-        let brake_mult = if drifting { 0.6 } else { 1.0 };
-        forces.apply_force(-velocity.normalize_or(Vec3::ZERO) * config.brake_force * brake_mult);
+        forces.apply_force(-velocity.normalize_or(Vec3::ZERO) * config.brake_force);
     }
 
     let steer_strength = (forward_speed.abs() / config.steer_speed_response)
@@ -430,7 +408,7 @@ fn apply_vehicle_forces(
         .max(0.0);
     let steer_sign = if forward_speed < 0.0 { -1.0 } else { 1.0 };
     if steer_strength > 0.01 && bottom_contact {
-        forces.apply_torque(car_rot * Vec3::Y * input.steer * steer_sign * config.steer_torque * steer_strength * steer_mult);
+        forces.apply_torque(car_rot * Vec3::Y * input.steer * steer_sign * config.steer_torque * steer_strength);
     }
 
     if input.roll.abs() > 0.01 {
@@ -520,7 +498,6 @@ fn sync_car_state(
         (&LinearVelocity, &Rotation, &Position, &mut Car),
         With<PlayerCar>,
     >,
-    vehicle_data: Query<&VehicleData, With<PlayerCar>>,
     mut car_state: ResMut<CarState>,
 ) {
     let Ok((lin_vel, rotation, position, mut car)) = car_query.single_mut() else {
@@ -534,19 +511,12 @@ fn sync_car_state(
     car.speed = forward_speed;
     car.yaw = yaw;
 
-    let is_drifting = vehicle_data
-        .iter()
-        .next()
-        .map_or(false, |d| d.grip_state == GripState::Kinetic);
-
     car_state.prev_speed = car_state.speed;
     car_state.speed = forward_speed;
     car_state.yaw = yaw;
     car_state.position = position.0;
     car_state.braking = input.braking;
     car_state.boosting = input.boosting;
-    car_state.skidding = input.braking || is_drifting;
-    car_state.drifting = vehicle_data.iter().next().map_or(false, |d| d.drifting);
 }
 
 fn camera_input(
@@ -624,220 +594,6 @@ fn camera_follow(
     }
 }
 
-#[derive(Component)]
-pub struct SkidMark {
-    lifetime: f32,
-}
-
-const SKID_MARK_LIFETIME: f32 = 3.0;
-
-#[derive(Resource)]
-pub struct SkidMarkResources {
-    pub mesh: Handle<Mesh>,
-}
-
-#[derive(Component)]
-pub struct SmokePuff {
-    pub lifetime: f32,
-    pub max_lifetime: f32,
-    pub start_scale: f32,
-    pub end_scale: f32,
-}
-
-#[derive(Resource)]
-pub struct SmokeResources {
-    pub mesh: Handle<Mesh>,
-}
-
-impl FromWorld for SmokeResources {
-    fn from_world(world: &mut World) -> Self {
-        let asset_server = world.resource::<AssetServer>();
-        SmokeResources {
-            mesh: asset_server.load("models/smoke.glb#Mesh0/Primitive0"),
-        }
-    }
-}
-
-impl FromWorld for SkidMarkResources {
-    fn from_world(world: &mut World) -> Self {
-        let mut meshes = world.resource_mut::<Assets<Mesh>>();
-        SkidMarkResources {
-            mesh: meshes.add(Cuboid::new(0.3, 0.005, 1.0)),
-        }
-    }
-}
-
-#[derive(Resource, Default)]
-pub struct SkidTrailState {
-    last_left: Option<Vec3>,
-    last_right: Option<Vec3>,
-}
-
-fn spawn_skid_marks(
-    mut commands: Commands,
-    car_state: Res<CarState>,
-    rear_left: Query<&GlobalTransform, (With<WheelRearLeft>, Without<PlayerCar>)>,
-    rear_right: Query<&GlobalTransform, (With<WheelRearRight>, Without<PlayerCar>)>,
-    skid_res: Res<SkidMarkResources>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut trail: ResMut<SkidTrailState>,
-) {
-    if !car_state.drifting {
-        trail.last_left = None;
-        trail.last_right = None;
-        return;
-    }
-
-    let spawn_segment = |commands: &mut Commands,
-                         materials: &mut Assets<StandardMaterial>,
-                         mesh: &Handle<Mesh>,
-                         last: &mut Option<Vec3>,
-                         wheel_pos: Option<Vec3>| {
-        let Some(current) = wheel_pos else { return };
-        let ground = Vec3::new(current.x, 0.005, current.z);
-
-        if let Some(last_pos) = *last {
-            let delta = ground - last_pos;
-            let dist = delta.length();
-            if dist > 0.01 {
-                let dir = delta / dist;
-                let mid = (last_pos + ground) * 0.5;
-
-                let material = materials.add(StandardMaterial {
-                    base_color: Color::BLACK.with_alpha(1.0),
-                    alpha_mode: AlphaMode::Blend,
-                    ..default()
-                });
-
-                commands.spawn((
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(material),
-                    Transform::from_translation(mid)
-                        .with_rotation(Quat::from_rotation_arc(Vec3::Z, Vec3::new(dir.x, 0.0, dir.z)))
-                        .with_scale(Vec3::new(1.0, 1.0, dist + 0.15)),
-                    SkidMark { lifetime: SKID_MARK_LIFETIME },
-                ));
-            }
-        }
-
-        *last = Some(ground);
-    };
-
-    spawn_segment(
-        &mut commands,
-        &mut materials,
-        &skid_res.mesh,
-        &mut trail.last_left,
-        rear_left.iter().next().map(|t| t.translation()),
-    );
-    spawn_segment(
-        &mut commands,
-        &mut materials,
-        &skid_res.mesh,
-        &mut trail.last_right,
-        rear_right.iter().next().map(|t| t.translation()),
-    );
-}
-
-fn fade_skid_marks(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut marks: Query<(Entity, &mut SkidMark, &MeshMaterial3d<StandardMaterial>)>,
-) {
-    let dt = time.delta_secs();
-    for (entity, mut mark, mat_handle) in marks.iter_mut() {
-        mark.lifetime -= dt;
-        if mark.lifetime <= 0.0 {
-            commands.entity(entity).despawn();
-        } else if let Some(mat) = materials.get_mut(mat_handle.id()) {
-            mat.base_color.set_alpha((mark.lifetime / SKID_MARK_LIFETIME).clamp(0.0, 1.0));
-        }
-    }
-}
-
-fn car_smoke_trail(
-    car_state: Res<CarState>,
-    rear_left: Query<&GlobalTransform, (With<WheelRearLeft>, Without<PlayerCar>)>,
-    rear_right: Query<&GlobalTransform, (With<WheelRearRight>, Without<PlayerCar>)>,
-    mut commands: Commands,
-    smoke_res: Res<SmokeResources>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    time: Res<Time>,
-    mut timer: Local<f32>,
-) {
-    if car_state.speed.abs() < 1.0 {
-        *timer = 0.0;
-        return;
-    }
-    *timer -= time.delta_secs();
-    if *timer > 0.0 {
-        return;
-    }
-    *timer = 0.08;
-
-    let spawn = |commands: &mut Commands,
-                 materials: &mut Assets<StandardMaterial>,
-                 mesh: &Handle<Mesh>,
-                 wheel_pos: Option<Vec3>|
-     -> () {
-        let Some(pos) = wheel_pos else { return };
-        let mat = materials.add(StandardMaterial {
-            base_color: Color::srgba(0.6, 0.6, 0.6, 0.5),
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        });
-        commands.spawn((
-            Mesh3d(mesh.clone()),
-            MeshMaterial3d(mat),
-            Transform::from_translation(Vec3::new(pos.x, 0.1, pos.z)).with_scale(Vec3::splat(0.3)),
-            SmokePuff {
-                lifetime: 0.8,
-                max_lifetime: 0.8,
-                start_scale: 0.3,
-                end_scale: 1.2,
-            },
-        ));
-    };
-
-    spawn(
-        &mut commands,
-        &mut materials,
-        &smoke_res.mesh,
-        rear_left.iter().next().map(|t| t.translation()),
-    );
-    spawn(
-        &mut commands,
-        &mut materials,
-        &smoke_res.mesh,
-        rear_right.iter().next().map(|t| t.translation()),
-    );
-}
-
-fn fade_smoke_puffs(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut q: Query<(Entity, &mut SmokePuff, &mut Transform, &MeshMaterial3d<StandardMaterial>)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let dt = time.delta_secs();
-    for (entity, mut puff, mut transform, mat_handle) in q.iter_mut() {
-        puff.lifetime -= dt;
-        if puff.lifetime <= 0.0 {
-            commands.entity(entity).despawn();
-            continue;
-        }
-        let t = 1.0 - puff.lifetime / puff.max_lifetime;
-        let s = puff.start_scale + (puff.end_scale - puff.start_scale) * t;
-        transform.scale = Vec3::splat(s);
-        transform.translation.y += 1.5 * dt;
-        if let Some(mat) = materials.get_mut(mat_handle.id()) {
-            let a = (1.0 - t * 0.8).clamp(0.0, 1.0);
-            mat.base_color.set_alpha(a);
-        }
-    }
-}
-
 fn label_wheels(
     car_query: Query<Entity, (With<PlayerCar>, Without<WheelsLabeled>)>,
     children_query: Query<&Children>,
@@ -903,33 +659,13 @@ fn animate_wheels(
             Without<PlayerCar>,
         ),
     >,
-    _rear_left: Query<
-        &mut Transform,
-        (
-            With<WheelRearLeft>,
-            Without<WheelFrontLeft>,
-            Without<WheelFrontRight>,
-            Without<WheelRearRight>,
-            Without<PlayerCar>,
-        ),
-    >,
-    _rear_right: Query<
-        &mut Transform,
-        (
-            With<WheelRearRight>,
-            Without<WheelFrontLeft>,
-            Without<WheelFrontRight>,
-            Without<WheelRearLeft>,
-            Without<PlayerCar>,
-        ),
-    >,
 ) {
     let Some(_car) = car_data.iter().next() else {
         return;
     };
     let dt = time.delta_secs();
 
-    let skid_mult = if car_state.skidding { 0.4 } else { 1.0 };
+    let skid_mult = if car_state.braking { 0.4 } else { 1.0 };
     let effective_steer = input.steer
         * skid_mult
         * (1.0 - (car_state.speed / 30.0).abs().clamp(0.0, 1.0) * 0.5);
@@ -1021,4 +757,3 @@ fn switch_car_model(
         parent.spawn((SceneRoot(car_scene), CarVisual));
     });
 }
-
