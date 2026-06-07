@@ -68,6 +68,7 @@ impl Plugin for CarPlugin {
                     animate_wheels,
                     record_telemetry,
                     respawn_car,
+                    respawn_hit_cars,
                     switch_car_model,
                 ),
             );
@@ -82,6 +83,9 @@ pub struct Car {
 
 #[derive(Component)]
 pub struct PlayerCar;
+
+#[derive(Component)]
+pub struct AiCar;
 
 #[derive(Component)]
 pub struct CarCamera;
@@ -195,7 +199,6 @@ pub struct CameraState {
     pub orbit_yaw: f32,
     pub orbit_pitch: f32,
     pub orbiting: bool,
-    pub returning: bool,
 }
 
 impl Default for CameraState {
@@ -205,7 +208,6 @@ impl Default for CameraState {
             orbit_yaw: 0.0,
             orbit_pitch: 0.0,
             orbiting: false,
-            returning: false,
         }
     }
 }
@@ -526,73 +528,71 @@ fn camera_input(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut scroll_events: MessageReader<MouseWheel>,
     mut motion_events: MessageReader<MouseMotion>,
+    car_query: Query<&Position, With<PlayerCar>>,
+    cam_query: Query<&Transform, (With<CarCamera>, Without<PlayerCar>)>,
 ) {
     for ev in scroll_events.read() {
         cam_state.zoom = (cam_state.zoom + ev.y * 0.5).clamp(0.0, 12.0);
     }
 
     if mouse_buttons.just_pressed(MouseButton::Right) {
+        if let Ok(car_pos) = car_query.single() {
+            if let Ok(cam) = cam_query.single() {
+                let car_center = car_pos.0 + Vec3::new(0.0, 1.5, 0.0);
+                let offset = cam.translation - car_center;
+                let horiz_dist = Vec2::new(offset.x, offset.z).length();
+                cam_state.orbit_yaw = offset.x.atan2(offset.z);
+                cam_state.orbit_pitch = offset.y.atan2(horiz_dist);
+            }
+        }
         cam_state.orbiting = true;
-        cam_state.returning = false;
     }
 
     if cam_state.orbiting {
         for ev in motion_events.read() {
-            cam_state.orbit_yaw += ev.delta.x * 0.005;
-            cam_state.orbit_pitch += ev.delta.y * 0.005;
+            cam_state.orbit_yaw -= ev.delta.x * 0.005;
+            cam_state.orbit_pitch -= ev.delta.y * 0.005;
         }
-        cam_state.orbit_pitch = cam_state.orbit_pitch.clamp(-1.2, 1.2);
+        cam_state.orbit_pitch = cam_state.orbit_pitch.clamp(0.05, 1.45);
     } else {
         for _ in motion_events.read() {}
     }
 
     if mouse_buttons.just_released(MouseButton::Right) {
         cam_state.orbiting = false;
-        cam_state.returning = true;
     }
 }
 
 fn camera_follow(
     car_query: Query<(&Rotation, &Position), With<PlayerCar>>,
     mut cam_query: Query<&mut Transform, (With<CarCamera>, Without<PlayerCar>)>,
-    mut cam_state: ResMut<CameraState>,
+    cam_state: Res<CameraState>,
 ) {
     let Some((car_rot, car_pos)) = car_query.iter().next() else {
         return;
     };
 
-    let facing = *car_rot * Vec3::Z;
-    let flat = Vec3::new(facing.x, 0.0, facing.z).normalize_or(Vec3::Z);
+    let car_center = car_pos.0 + Vec3::new(0.0, 1.5, 0.0);
     let distance = (14.0 - cam_state.zoom).max(2.0);
 
-    if !cam_state.orbiting && cam_state.returning {
-        cam_state.orbit_yaw *= 0.92;
-        cam_state.orbit_pitch *= 0.92;
-        if cam_state.orbit_yaw.abs() < 0.01 && cam_state.orbit_pitch.abs() < 0.01 {
-            cam_state.orbit_yaw = 0.0;
-            cam_state.orbit_pitch = 0.0;
-            cam_state.returning = false;
-        }
-    }
-
-    let target = if cam_state.orbiting || cam_state.returning {
-        let right = flat.cross(Vec3::Y);
-        let default_dir = -flat;
-        let yaw_rot = Quat::from_axis_angle(Vec3::Y, cam_state.orbit_yaw);
-        let pitch_rot = Quat::from_axis_angle(right, cam_state.orbit_pitch);
-        let dir = pitch_rot * yaw_rot * default_dir;
-        let height = 8.0 + distance * cam_state.orbit_pitch.sin() * 0.3;
-        car_pos.0 + dir * distance + Vec3::new(0.0, height, 0.0)
+    let target = if cam_state.orbiting {
+        let horiz_dist = distance * cam_state.orbit_pitch.cos();
+        let x = horiz_dist * cam_state.orbit_yaw.sin();
+        let y = distance * cam_state.orbit_pitch.sin();
+        let z = horiz_dist * cam_state.orbit_yaw.cos();
+        car_center + Vec3::new(x, y, z)
     } else {
-        let height = (8.0 - cam_state.zoom * 0.2).max(2.0);
-        car_pos.0 - flat * distance + Vec3::new(0.0, height, 0.0)
+        let facing = *car_rot * Vec3::Z;
+        let flat = Vec3::new(facing.x, 0.0, facing.z).normalize_or(Vec3::Z);
+        let chase_height = (8.0 - cam_state.zoom * 0.2).max(2.0);
+        car_pos.0 - flat * distance + Vec3::new(0.0, chase_height, 0.0)
     };
 
-    let lerp = if cam_state.orbiting { 0.9 } else { 0.08 };
+    let lerp = if cam_state.orbiting { 0.3 } else { 0.08 };
 
     for mut cam in cam_query.iter_mut() {
         cam.translation = cam.translation.lerp(target, lerp);
-        cam.look_at(car_pos.0 + Vec3::new(0.0, 1.5, 0.0), Vec3::Y);
+        cam.look_at(car_center, Vec3::Y);
     }
 }
 
@@ -696,16 +696,55 @@ fn record_telemetry(
     telemetry.record(car.speed, wheel_state.current_angle, car.yaw);
 }
 
+#[derive(Component)]
+pub struct RespawnCar {
+    pub spawn_pos: Vec3,
+}
+
 fn respawn_car(
-    mut car_query: Query<(&mut Position, &mut LinearVelocity, &mut AngularVelocity), With<PlayerCar>>,
+    mut player_query: Query<(&mut Position, &mut Rotation, &mut LinearVelocity, &mut AngularVelocity), With<PlayerCar>>,
+    mut ai_query: Query<(&mut Position, &mut Rotation, &mut LinearVelocity, &mut AngularVelocity), (With<AiCar>, Without<PlayerCar>)>,
 ) {
-    let Ok((mut pos, mut lin_vel, mut ang_vel)) = car_query.single_mut() else {
-        return;
-    };
-    if pos.0.y < -20.0 {
-        pos.0 = Vec3::new(0.0, 5.0, 0.0);
-        lin_vel.0 = Vec3::ZERO;
-        ang_vel.0 = Vec3::ZERO;
+    for (mut pos, mut rot, mut lin_vel, mut ang_vel) in player_query.iter_mut() {
+        if pos.0.y < -20.0 {
+            pos.0 = Vec3::new(0.0, 5.0, 0.0);
+            rot.0 = Quat::IDENTITY;
+            lin_vel.0 = Vec3::ZERO;
+            ang_vel.0 = Vec3::ZERO;
+        }
+    }
+    for (mut pos, mut rot, mut lin_vel, mut ang_vel) in ai_query.iter_mut() {
+        if pos.0.y < -20.0 {
+            pos.0 = Vec3::new(10.0, 5.0, 10.0);
+            rot.0 = Quat::IDENTITY;
+            lin_vel.0 = Vec3::ZERO;
+            ang_vel.0 = Vec3::ZERO;
+        }
+    }
+}
+
+fn respawn_hit_cars(
+    mut commands: Commands,
+    query: Query<(Entity, &RespawnCar)>,
+    mut pos_query: Query<&mut Position>,
+    mut rot_query: Query<&mut Rotation>,
+    mut linvel_query: Query<&mut LinearVelocity>,
+    mut angvel_query: Query<&mut AngularVelocity>,
+) {
+    for (entity, respawn) in query.iter() {
+        if let Ok(mut pos) = pos_query.get_mut(entity) {
+            pos.0 = respawn.spawn_pos;
+        }
+        if let Ok(mut rot) = rot_query.get_mut(entity) {
+            rot.0 = Quat::IDENTITY;
+        }
+        if let Ok(mut lin_vel) = linvel_query.get_mut(entity) {
+            lin_vel.0 = Vec3::ZERO;
+        }
+        if let Ok(mut ang_vel) = angvel_query.get_mut(entity) {
+            ang_vel.0 = Vec3::ZERO;
+        }
+        commands.entity(entity).remove::<RespawnCar>();
     }
 }
 
@@ -755,6 +794,7 @@ fn switch_car_model(
         parent.spawn((
             Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
             Transform::from_translation(Vec3::new(0.0, def.collider.y * 0.5, 0.0)),
+            CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
             CarCollider,
         ));
         parent.spawn((SceneRoot(car_scene), CarVisual));

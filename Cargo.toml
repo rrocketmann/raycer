@@ -6,7 +6,7 @@ description = "Open-source 3D racing game built as an AI gym for reinforcement l
 license = "CC0-1.0"
 
 [dependencies]
-bevy = "0.18"
+bevy = { version = "0.18", features = ["mesh_picking"] }
 bevy_egui = "0.39"
 bevy_light = "0.18"
 

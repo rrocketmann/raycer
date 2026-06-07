@@ -47,6 +47,7 @@ fn spawn_world(
         parent.spawn((
             Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
             Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
+            CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
             CarCollider,
         ));
         parent.spawn((SceneRoot(car_scene), CarVisual));

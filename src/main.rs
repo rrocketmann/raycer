@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use avian3d::dynamics::solver::SolverConfig;
 use avian3d::prelude::*;
 
+mod ai;
 mod blaster;
 mod car;
 mod splash;
@@ -29,7 +30,7 @@ fn main() {
             ..default()
         })
         .add_plugins(bevy_egui::EguiPlugin::default())
-        .add_plugins((splash::SplashPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
+        .add_plugins((splash::SplashPlugin, ai::AiPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
 
     #[cfg(feature = "dev")]
     app.add_plugins(avian3d::debug_render::PhysicsDebugPlugin);
