@@ -32,6 +32,10 @@ pub const CAR_DEFS: &[CarDef] = &[
     CarDef { name: "Tractor Shovel", path: "models/tractor-shovel.glb",    collider: Vec3::new(1.46, 1.34, 2.00) },
 ];
 
+pub fn mount_y(collider_y: f32) -> f32 {
+    collider_y * 1.5 + 0.1
+}
+
 #[derive(Resource, Default)]
 pub struct CarSelection {
     pub index: usize,
@@ -403,9 +407,7 @@ fn apply_vehicle_forces(
         forces.apply_force(-velocity.normalize_or(Vec3::ZERO) * config.brake_force);
     }
 
-    let steer_strength = (forward_speed.abs() / config.steer_speed_response)
-        .min(1.0)
-        .max(0.0);
+    let steer_strength = (forward_speed.abs() / config.steer_speed_response).clamp(0.0, 1.0);
     let steer_sign = if forward_speed < 0.0 { -1.0 } else { 1.0 };
     if steer_strength > 0.01 && bottom_contact {
         forces.apply_torque(car_rot * Vec3::Y * input.steer * steer_sign * config.steer_torque * steer_strength);
@@ -604,7 +606,7 @@ fn label_wheels(
         let mut found_wheels = false;
         for child in children_query.iter_descendants(car_entity) {
             if let Ok(name) = name_query.get(child) {
-                let lower = name.to_lowercase().replace('-', "").replace('_', "");
+                let lower = name.to_lowercase().replace(['-', '_'], "");
                 match lower.as_str() {
                     "wheelfrontleft" | "fl" => {
                         commands.entity(child).insert(WheelFrontLeft);
@@ -722,6 +724,7 @@ fn switch_car_model(
     wheel_query: Query<Entity, Or<(With<WheelFrontLeft>, With<WheelFrontRight>, With<WheelRearLeft>, With<WheelRearRight>)>>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    mut blaster_selection: ResMut<crate::blaster::BlasterSelection>,
 ) {
     if !selection.pending_change {
         return;
@@ -756,4 +759,6 @@ fn switch_car_model(
         ));
         parent.spawn((SceneRoot(car_scene), CarVisual));
     });
+
+    blaster_selection.pending_change = true;
 }

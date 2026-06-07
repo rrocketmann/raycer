@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use avian3d::prelude::Rotation;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::car::{CarSelection, CarState, CAR_DEFS, PlayerCar};
@@ -30,7 +29,7 @@ fn egui_panel(
     mut dropdown: ResMut<CarDropdownOpen>,
     mut blaster_selection: ResMut<BlasterSelection>,
     mut blaster_dropdown: ResMut<BlasterDropdownOpen>,
-    _car_query: Query<&Rotation, With<PlayerCar>>,
+    _car_query: Query<&avian3d::prelude::Rotation, With<PlayerCar>>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
     let ctx = match contexts.ctx_mut() {
@@ -85,7 +84,7 @@ fn egui_panel(
         0.0
     };
 
-    egui::Area::new("car_selector".into())
+    let car_btn_rect = egui::Area::new("car_selector".into())
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0 - dropdown_height))
         .show(ctx, |ui| {
             let btn_text = current_name.to_string();
@@ -100,12 +99,15 @@ fn egui_panel(
             if btn_resp.clicked() {
                 dropdown.0 = !dropdown.0;
             }
-        });
+            btn_resp.rect
+        }).inner;
 
+    let mut car_drop_rect = None;
     if dropdown.0 {
-        egui::Area::new("car_dropdown".into())
+        car_drop_rect = Some(egui::Area::new("car_dropdown".into())
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0 - 22.0))
             .show(ctx, |ui| {
+                let area_rect = ui.max_rect();
                 egui::ScrollArea::vertical()
                     .max_height(max_visible as f32 * item_height)
                     .id_salt("car_list_scroll")
@@ -131,7 +133,8 @@ fn egui_panel(
                             }
                         }
                     });
-            });
+                area_rect
+            }).inner);
     }
 
     let blaster_name = BLASTER_DEFS[blaster_selection.index].name;
@@ -146,7 +149,7 @@ fn egui_panel(
 
     let blaster_x = 136.0;
 
-    egui::Area::new("blaster_selector".into())
+    let blaster_btn_rect = egui::Area::new("blaster_selector".into())
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(blaster_x, -12.0 - blaster_drop_h))
         .show(ctx, |ui| {
             let b_resp = ui.add_sized(
@@ -158,12 +161,15 @@ fn egui_panel(
             if b_resp.clicked() {
                 blaster_dropdown.0 = !blaster_dropdown.0;
             }
-        });
+            b_resp.rect
+        }).inner;
 
+    let mut blaster_drop_rect = None;
     if blaster_dropdown.0 {
-        egui::Area::new("blaster_dropdown".into())
+        blaster_drop_rect = Some(egui::Area::new("blaster_dropdown".into())
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(blaster_x, -12.0 - 22.0))
             .show(ctx, |ui| {
+                let area_rect = ui.max_rect();
                 egui::ScrollArea::vertical()
                     .max_height(8.0 * blaster_item_h)
                     .id_salt("blaster_list_scroll")
@@ -189,7 +195,8 @@ fn egui_panel(
                             }
                         }
                     });
-            });
+                area_rect
+            }).inner);
     }
 
     egui::Area::new("bottom_right_speed".into())
@@ -219,6 +226,19 @@ fn egui_panel(
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         dropdown.0 = false;
         blaster_dropdown.0 = false;
+    }
+
+    let any_click = ctx.input(|i| i.pointer.any_click());
+    if any_click && (dropdown.0 || blaster_dropdown.0) {
+        let pos = ctx.input(|i| i.pointer.latest_pos().unwrap_or(egui::Pos2::ZERO));
+        let in_car_btn = car_btn_rect.contains(pos);
+        let in_car_drop = car_drop_rect.is_some_and(|r| r.contains(pos));
+        let in_blaster_btn = blaster_btn_rect.contains(pos);
+        let in_blaster_drop = blaster_drop_rect.is_some_and(|r| r.contains(pos));
+        if !in_car_btn && !in_car_drop && !in_blaster_btn && !in_blaster_drop {
+            dropdown.0 = false;
+            blaster_dropdown.0 = false;
+        }
     }
 }
 
