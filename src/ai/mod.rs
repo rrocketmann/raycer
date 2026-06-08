@@ -1,7 +1,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::collections::HashSet;
-use crate::blaster::{Bullet, ExcludeMeshRayCast, BLASTER_DEFS, BULLET_SPEED, BULLET_RADIUS};
+use crate::blaster::{Bullet, ExcludeMeshRayCast, BLASTER_DEFS, BULLET_RADIUS, BULLET_SPEED};
 use crate::car::{AiCar, CarVisual, PlayerCar, CAR_DEFS, mount_y};
 
 #[derive(Component)]
@@ -19,6 +19,8 @@ struct AiPivotCache {
 struct AiShootTimer {
     timer: Timer,
 }
+
+
 
 pub struct AiPlugin;
 
@@ -62,7 +64,7 @@ fn spawn_ai_car(
         AngularVelocity::ZERO,
         LinearDamping(0.5),
         AngularDamping(1.0),
-        MaxLinearSpeed(50.0),
+        MaxLinearSpeed(80.0),
         MaxAngularSpeed(4.0),
         CenterOfMass(Vec3::ZERO),
         Friction::new(0.01),
@@ -163,38 +165,51 @@ fn ai_aim_blaster(
 
 fn ai_drive(
     time: Res<Time>,
-    mut ai_query: Query<(&GlobalTransform, &Rotation, &mut LinearVelocity, &mut AngularVelocity), With<AiCar>>,
+    mut ai_query: Query<(&GlobalTransform, &mut LinearVelocity, &mut AngularVelocity), With<AiCar>>,
     player_query: Query<&GlobalTransform, (With<PlayerCar>, Without<AiCar>)>,
 ) {
-    let Ok((ai_transform, ai_rot, mut lin_vel, mut ang_vel)) = ai_query.single_mut() else { return };
+    let Ok((ai_transform, mut lin_vel, mut ang_vel)) = ai_query.single_mut() else { return };
     let Ok(player_transform) = player_query.single() else { return };
 
     let ai_pos = ai_transform.translation();
     let player_pos = player_transform.translation();
 
+    if ai_pos.y < -3.0 {
+        lin_vel.0 = Vec3::new(0.0, 5.0, 0.0);
+        ang_vel.0 = Vec3::ZERO;
+        return;
+    }
+
+    let dt = time.delta_secs();
+
     let to_player = player_pos - ai_pos;
     let flat_to_player = Vec3::new(to_player.x, 0.0, to_player.z);
+    let dist = flat_to_player.length();
 
-    if flat_to_player.length_squared() < 1.0 { return; }
+    if dist < 1.0 { return; }
 
-    let desired_dir = flat_to_player.normalize();
-    let ai_forward = ai_rot.0 * Vec3::Z;
-    let ai_flat_forward = Vec3::new(ai_forward.x, 0.0, ai_forward.z).normalize_or(Vec3::Z);
+    let desired_dir = flat_to_player.normalize_or(Vec3::Z);
 
-    let cross = ai_flat_forward.cross(Vec3::Y);
-    let dot = cross.dot(desired_dir);
-    let steer = dot.clamp(-1.0, 1.0);
+    let current_vel = lin_vel.0;
+    let current_flat = Vec3::new(current_vel.x, 0.0, current_vel.z);
 
-    ang_vel.0 = Vec3::Y * steer * 3.0;
+    let target_vel = desired_dir * 45.0;
+    let flat_target = Vec3::new(target_vel.x, 0.0, target_vel.z);
 
-    let speed = lin_vel.0.length();
-    let dt = time.delta_secs();
-    let vel = lin_vel.0;
-    if speed < 25.0 {
-        lin_vel.0 += ai_flat_forward * 2400.0 * dt;
+    let blend = (6.0 * dt).min(1.0);
+    let new_flat = current_flat.lerp(flat_target, blend);
+
+    lin_vel.0 = Vec3::new(new_flat.x, current_vel.y, new_flat.z);
+
+    let rot_speed = 6.0 * dt;
+    if dist > 0.01 {
+        let target_yaw = f32::atan2(-desired_dir.x, -desired_dir.z);
+        let current_yaw = f32::atan2(-current_flat.x, -current_flat.z);
+        let mut diff = target_yaw - current_yaw;
+        while diff > std::f32::consts::PI { diff -= 2.0 * std::f32::consts::PI; }
+        while diff < -std::f32::consts::PI { diff += 2.0 * std::f32::consts::PI; }
+        ang_vel.0 = Vec3::Y * diff * rot_speed;
     }
-    lin_vel.0 -= vel.normalize_or(Vec3::ZERO) * 3.0 * dt;
-    lin_vel.0 -= vel * speed * 0.4 * dt;
 }
 
 fn ai_shoot(
