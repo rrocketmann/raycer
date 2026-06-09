@@ -713,12 +713,15 @@ fn respawn_car(
             ang_vel.0 = Vec3::ZERO;
         }
     }
+    let mut ai_index: u32 = 0;
     for (mut pos, mut rot, mut lin_vel, mut ang_vel) in ai_query.iter_mut() {
         if pos.0.y < -20.0 {
-            pos.0 = Vec3::new(10.0, 5.0, 10.0);
+            let angle = ai_index as f32 * 2.1;
+            pos.0 = Vec3::new(angle.cos() * 10.0, 5.0, angle.sin() * 10.0);
             rot.0 = Quat::IDENTITY;
             lin_vel.0 = Vec3::ZERO;
             ang_vel.0 = Vec3::ZERO;
+            ai_index += 1;
         }
     }
 }

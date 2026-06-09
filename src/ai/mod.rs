@@ -10,27 +10,28 @@ pub struct AiBlasterVisual;
 #[derive(Component)]
 struct AiComputePivot;
 
-#[derive(Resource, Default)]
+#[derive(Component, Default)]
 struct AiPivotCache {
     pivot: Option<Vec3>,
 }
 
-#[derive(Resource)]
+#[derive(Component)]
 struct AiShootTimer {
     timer: Timer,
 }
 
-
+#[derive(Component)]
+struct AiConfig {
+    car_index: usize,
+    bullet_color: Srgba,
+    bullet_emissive: LinearRgba,
+}
 
 pub struct AiPlugin;
 
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<AiPivotCache>()
-            .insert_resource(AiShootTimer {
-                timer: Timer::from_seconds(1.5, TimerMode::Repeating),
-            })
-            .add_systems(Startup, spawn_ai_car)
+        app.add_systems(Startup, spawn_ai_cars)
             .add_systems(Update, (
                 ai_compute_pivot,
                 ai_aim_blaster,
@@ -40,71 +41,82 @@ impl Plugin for AiPlugin {
     }
 }
 
-const AI_CAR_INDEX: usize = 3;
-const AI_BLASTER_INDEX: usize = 1;
-const AI_SPAWN_POS: Vec3 = Vec3::new(10.0, 3.0, 10.0);
-
-fn spawn_ai_car(
+fn spawn_ai_cars(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
-    let def = &CAR_DEFS[AI_CAR_INDEX];
-    let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
-    let blaster_def = &BLASTER_DEFS[AI_BLASTER_INDEX];
-    let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
-    let half_height = def.collider.y * 0.5;
-    let mount = Vec3::new(0.0, mount_y(def.collider.y), 0.0);
+    let spawns: Vec<(usize, usize, Vec3, Srgba, LinearRgba)> = vec![
+        (3, 1, Vec3::new(10.0, 3.0, 10.0), Srgba::hex("ff4400").unwrap(), LinearRgba::new(6.0, 1.0, 0.0, 1.0)),
+        (5, 1, Vec3::new(-10.0, 3.0, -10.0), Srgba::hex("00bbff").unwrap(), LinearRgba::new(0.0, 4.0, 6.0, 1.0)),
+        (8, 1, Vec3::new(20.0, 3.0, -5.0), Srgba::hex("cc00ff").unwrap(), LinearRgba::new(6.0, 0.0, 4.0, 1.0)),
+    ];
 
-    let ai_root = commands.spawn((
-        AiCar,
-        RigidBody::Dynamic,
-        Position(AI_SPAWN_POS),
-        Rotation::default(),
-        LinearVelocity::ZERO,
-        AngularVelocity::ZERO,
-        LinearDamping(0.5),
-        AngularDamping(1.0),
-        MaxLinearSpeed(80.0),
-        MaxAngularSpeed(4.0),
-        CenterOfMass(Vec3::ZERO),
-        Friction::new(0.01),
-        SweptCcd::NON_LINEAR,
-        Mass(6.0),
-        GravityScale(1.0),
-    )).id();
+    for (car_index, blaster_index, pos, bullet_color, bullet_emissive) in spawns {
+        let def = &CAR_DEFS[car_index];
+        let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
+        let blaster_def = &BLASTER_DEFS[blaster_index];
+        let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
+        let half_height = def.collider.y * 0.5;
+        let mount = Vec3::new(0.0, mount_y(def.collider.y), 0.0);
 
-    commands.entity(ai_root).with_children(|parent| {
-        parent.spawn((
-            Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
-            Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
-            CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
+        let ai_root = commands.spawn((
+            AiCar,
+            AiConfig { car_index, bullet_color, bullet_emissive },
+            RigidBody::Dynamic,
+            Position(pos),
+            Rotation(Quat::from_rotation_y(f32::atan2(-pos.x, -pos.z))),
+            LinearVelocity::ZERO,
+            AngularVelocity::ZERO,
+            LinearDamping(0.5),
+            AngularDamping(1.0),
+            MaxLinearSpeed(80.0),
+            MaxAngularSpeed(4.0),
+            CenterOfMass(Vec3::ZERO),
+            Friction::new(0.01),
+            SweptCcd::NON_LINEAR,
+            Mass(6.0),
+        )).id();
+
+        commands.entity(ai_root).insert((
+            GravityScale(1.0),
+            AiShootTimer { timer: Timer::from_seconds(1.5, TimerMode::Repeating) },
         ));
-        parent.spawn((
-            SceneRoot(car_scene),
-            CarVisual,
-        ));
-        parent.spawn((
-            SceneRoot(blaster_scene),
-            Transform::from_translation(mount).with_scale(Vec3::splat(blaster_def.scale)),
-            AiBlasterVisual,
-            AiComputePivot,
-        ));
-    });
+
+        commands.entity(ai_root).with_children(|parent| {
+            parent.spawn((
+                Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
+                Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
+                CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
+            ));
+            parent.spawn((
+                SceneRoot(car_scene),
+                CarVisual,
+            ));
+            parent.spawn((
+                SceneRoot(blaster_scene),
+                Transform::from_translation(mount).with_scale(Vec3::splat(blaster_def.scale)),
+                AiBlasterVisual,
+                AiComputePivot,
+                AiPivotCache::default(),
+            ));
+        });
+    }
 }
 
 fn ai_compute_pivot(
     mut commands: Commands,
-    mut pivot_cache: ResMut<AiPivotCache>,
-    ai_query: Query<&GlobalTransform, With<AiCar>>,
+    ai_query: Query<(Entity, &GlobalTransform, &AiConfig), With<AiCar>>,
     blaster_query: Query<(Entity, &GlobalTransform, &Transform), (With<AiBlasterVisual>, With<AiComputePivot>)>,
+    parent_query: Query<&ChildOf>,
     children_query: Query<&Children>,
     mesh_query: Query<&GlobalTransform, With<Mesh3d>>,
+    mut pivot_cache_query: Query<&mut AiPivotCache, With<AiBlasterVisual>>,
 ) {
-    for (entity, _blaster_global, blaster_transform) in blaster_query.iter() {
+    for (blaster_entity, _blaster_global, blaster_transform) in blaster_query.iter() {
         let mut center_world = Vec3::ZERO;
         let mut count = 0;
 
-        for desc in children_query.iter_descendants(entity) {
+        for desc in children_query.iter_descendants(blaster_entity) {
             if let Ok(desc_global) = mesh_query.get(desc) {
                 center_world += desc_global.translation();
                 count += 1;
@@ -114,145 +126,196 @@ fn ai_compute_pivot(
         if count == 0 { continue; }
         center_world /= count as f32;
 
-        let Ok(ai_global) = ai_query.single() else { continue };
+        let Ok(parent) = parent_query.get(blaster_entity) else { continue };
+        let parent_entity: Entity = parent.0;
+        let Ok((_, ai_global, ai_config)) = ai_query.get(parent_entity) else { continue };
+
         let center_local = ai_global.affine().inverse().transform_point(center_world);
 
-        let def = &CAR_DEFS[AI_CAR_INDEX];
+        let def = &CAR_DEFS[ai_config.car_index];
         let mount = Vec3::new(0.0, mount_y(def.collider.y), 0.0);
         let rot = blaster_transform.rotation;
         let s = blaster_transform.scale.x;
 
         let pivot = rot.inverse() * (center_local - mount) / s;
 
-        pivot_cache.pivot = Some(pivot);
-        commands.entity(entity).remove::<AiComputePivot>();
-        return;
+        if let Ok(mut pivot_cache) = pivot_cache_query.get_mut(blaster_entity) {
+            pivot_cache.pivot = Some(pivot);
+        }
+        commands.entity(blaster_entity).remove::<AiComputePivot>();
     }
 }
 
 fn ai_aim_blaster(
-    ai_query: Query<&GlobalTransform, With<AiCar>>,
-    player_query: Query<&GlobalTransform, (With<PlayerCar>, Without<AiCar>)>,
-    pivot_cache: Res<AiPivotCache>,
-    mut blaster_query: Query<&mut Transform, (With<AiBlasterVisual>, Without<PlayerCar>)>,
+    ai_query: Query<(Entity, &GlobalTransform, &AiConfig), With<AiCar>>,
+    all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
+    children_query: Query<&Children>,
+    mut blaster_query: Query<(&AiPivotCache, &mut Transform), (With<AiBlasterVisual>, Without<AiCar>)>,
 ) {
-    let Ok(ai_global) = ai_query.single() else { return };
-    let Ok(player_global) = player_query.single() else { return };
-    let Ok(mut blaster) = blaster_query.single_mut() else { return };
+    for (ai_entity, ai_global, ai_config) in ai_query.iter() {
+        let mut best_dist = f32::MAX;
+        let mut target_pos = ai_global.translation();
+        for (other_entity, other_global) in all_cars.iter() {
+            if other_entity == ai_entity { continue; }
+            let d = (other_global.translation() - ai_global.translation()).length();
+            if d < best_dist {
+                best_dist = d;
+                target_pos = other_global.translation();
+            }
+        }
 
-    let def = &CAR_DEFS[AI_CAR_INDEX];
-    let mount = Vec3::new(0.0, mount_y(def.collider.y), 0.0);
-    let s = blaster.scale.x;
-    let pivot = pivot_cache.pivot.unwrap_or(Vec3::ZERO);
+        let Ok(children) = children_query.get(ai_entity) else { continue };
+        for child in children {
+            if let Ok((pivot_cache, mut blaster_transform)) = blaster_query.get_mut(*child) {
+                let def = &CAR_DEFS[ai_config.car_index];
+                let mount = Vec3::new(0.0, mount_y(def.collider.y), 0.0);
+                let s = blaster_transform.scale.x;
+                let pivot = pivot_cache.pivot.unwrap_or(Vec3::ZERO);
 
-    let ai_pos = ai_global.translation();
-    let ai_rot = ai_global.rotation();
-    let player_pos = player_global.translation();
-    let aim_point = player_pos + Vec3::new(0.0, 1.0, 0.0);
+                let ai_pos = ai_global.translation();
+                let ai_rot = ai_global.rotation();
+                let aim_point = target_pos + Vec3::new(0.0, 1.0, 0.0);
 
-    let blaster_world_mount = ai_pos + ai_rot * mount;
-    let local_aim = ai_rot.inverse() * (aim_point - blaster_world_mount);
-    if local_aim.length_squared() < 0.01 { return; }
-    let local_dir = local_aim.normalize();
-    let yaw = f32::atan2(-local_dir.x, -local_dir.z);
-    let horiz_len = Vec2::new(local_dir.x, local_dir.z).length();
-    let pitch = f32::atan2(local_dir.y, horiz_len);
+                let blaster_world_mount = ai_pos + ai_rot * mount;
+                let local_aim = ai_rot.inverse() * (aim_point - blaster_world_mount);
+                if local_aim.length_squared() < 0.01 { continue; }
+                let local_dir = local_aim.normalize();
+                let yaw = f32::atan2(-local_dir.x, -local_dir.z);
+                let horiz_len = Vec2::new(local_dir.x, local_dir.z).length();
+                let pitch = f32::atan2(local_dir.y, horiz_len);
 
-    let rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
-    blaster.translation = mount - rotation * (s * pivot);
-    blaster.rotation = rotation;
+                let rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+                blaster_transform.translation = mount - rotation * (s * pivot);
+                blaster_transform.rotation = rotation;
+
+                break;
+            }
+        }
+    }
 }
 
 fn ai_drive(
     time: Res<Time>,
-    mut ai_query: Query<(&GlobalTransform, &mut LinearVelocity, &mut AngularVelocity), With<AiCar>>,
-    player_query: Query<&GlobalTransform, (With<PlayerCar>, Without<AiCar>)>,
+    mut ai_query: Query<(Entity, &GlobalTransform, &mut LinearVelocity, &mut AngularVelocity), With<AiCar>>,
+    all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
 ) {
-    let Ok((ai_transform, mut lin_vel, mut ang_vel)) = ai_query.single_mut() else { return };
-    let Ok(player_transform) = player_query.single() else { return };
-
-    let ai_pos = ai_transform.translation();
-    let player_pos = player_transform.translation();
-
-    if ai_pos.y < -3.0 {
-        lin_vel.0 = Vec3::new(0.0, 5.0, 0.0);
-        ang_vel.0 = Vec3::ZERO;
-        return;
-    }
-
     let dt = time.delta_secs();
+    let car_data: Vec<(Entity, Vec3)> = all_cars.iter()
+        .map(|(e, t)| (e, t.translation()))
+        .collect();
 
-    let to_player = player_pos - ai_pos;
-    let flat_to_player = Vec3::new(to_player.x, 0.0, to_player.z);
-    let dist = flat_to_player.length();
+    for (ai_entity, ai_transform, mut lin_vel, mut ang_vel) in ai_query.iter_mut() {
+        let ai_pos = ai_transform.translation();
+        let ai_rot = ai_transform.rotation();
 
-    if dist < 1.0 { return; }
+        if ai_pos.y < -3.0 {
+            lin_vel.0 = Vec3::new(0.0, 5.0, 0.0);
+            ang_vel.0 = Vec3::ZERO;
+            continue;
+        }
 
-    let desired_dir = flat_to_player.normalize_or(Vec3::Z);
+        let mut best_dist = f32::MAX;
+        let mut target_pos = ai_pos + ai_rot * Vec3::Z;
+        for (other_entity, other_pos) in &car_data {
+            if *other_entity == ai_entity { continue; }
+            let flat = Vec3::new(other_pos.x - ai_pos.x, 0.0, other_pos.z - ai_pos.z);
+            let d = flat.length();
+            if d < best_dist && d > 0.01 {
+                best_dist = d;
+                target_pos = *other_pos;
+            }
+        }
 
-    let current_vel = lin_vel.0;
-    let current_flat = Vec3::new(current_vel.x, 0.0, current_vel.z);
+        let to_target = target_pos - ai_pos;
+        let flat_to_target = Vec3::new(to_target.x, 0.0, to_target.z);
+        if flat_to_target.length_squared() < 1.0 { continue; }
+        let desired_dir = flat_to_target.normalize_or(Vec3::Z);
 
-    let target_vel = desired_dir * 45.0;
-    let flat_target = Vec3::new(target_vel.x, 0.0, target_vel.z);
+        let forward = ai_rot * Vec3::Z;
+        let flat_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or(Vec3::Z);
 
-    let blend = (6.0 * dt).min(1.0);
-    let new_flat = current_flat.lerp(flat_target, blend);
+        let angle_to_target = f32::atan2(
+            flat_forward.cross(desired_dir).y,
+            flat_forward.dot(desired_dir),
+        );
 
-    lin_vel.0 = Vec3::new(new_flat.x, current_vel.y, new_flat.z);
+        ang_vel.0 = Vec3::Y * angle_to_target * 4.0;
 
-    let rot_speed = 6.0 * dt;
-    if dist > 0.01 {
-        let target_yaw = f32::atan2(-desired_dir.x, -desired_dir.z);
-        let current_yaw = f32::atan2(-current_flat.x, -current_flat.z);
-        let mut diff = target_yaw - current_yaw;
-        while diff > std::f32::consts::PI { diff -= 2.0 * std::f32::consts::PI; }
-        while diff < -std::f32::consts::PI { diff += 2.0 * std::f32::consts::PI; }
-        ang_vel.0 = Vec3::Y * diff * rot_speed;
+        let speed_factor = (1.0 - angle_to_target.abs() / std::f32::consts::PI * 0.8).max(0.2);
+        let target_speed = 45.0 * speed_factor;
+
+        let current_vel = lin_vel.0;
+        let current_flat = Vec3::new(current_vel.x, 0.0, current_vel.z);
+        let current_speed = current_flat.dot(flat_forward);
+
+        let accel = (target_speed - current_speed) * (5.0 * dt).min(1.0);
+        let new_speed = current_speed + accel;
+
+        lin_vel.0 = flat_forward * new_speed + Vec3::new(0.0, current_vel.y, 0.0);
     }
 }
 
 fn ai_shoot(
-    mut timer: ResMut<AiShootTimer>,
     time: Res<Time>,
-    ai_blaster_query: Query<&GlobalTransform, With<AiBlasterVisual>>,
-    ai_query: Query<Entity, With<AiCar>>,
+    mut ai_query: Query<(Entity, &GlobalTransform, &AiConfig, &mut AiShootTimer), With<AiCar>>,
+    all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
+    blaster_global_query: Query<&GlobalTransform, With<AiBlasterVisual>>,
     children_query: Query<&Children>,
-    player_query: Query<&GlobalTransform, (With<PlayerCar>, Without<AiCar>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
-    timer.timer.tick(time.delta());
-    if !timer.timer.just_finished() { return; }
+    let car_data: Vec<(Entity, Vec3)> = all_cars.iter()
+        .map(|(e, t)| (e, t.translation()))
+        .collect();
 
-    let Ok(blaster_global) = ai_blaster_query.single() else { return };
-    let Ok(ai_entity) = ai_query.single() else { return };
-    let Ok(player_global) = player_query.single() else { return; };
+    for (ai_entity, ai_global, ai_config, mut shoot_timer) in ai_query.iter_mut() {
+        shoot_timer.timer.tick(time.delta());
+        if !shoot_timer.timer.just_finished() { continue; }
 
-    let blaster_pos = blaster_global.translation();
-    let aim_point = player_global.translation() + Vec3::new(0.0, 1.0, 0.0);
-    let direction = (aim_point - blaster_pos).normalize_or(Vec3::Z);
-    let spawn_pos = blaster_pos + direction * 1.0;
+        let mut best_dist = f32::MAX;
+        let mut target_pos = ai_global.translation();
+        for (other_entity, other_pos) in &car_data {
+            if *other_entity == ai_entity { continue; }
+            let d = (*other_pos - ai_global.translation()).length();
+            if d < best_dist {
+                best_dist = d;
+                target_pos = *other_pos;
+            }
+        }
 
-    let mut exclude = HashSet::new();
-    exclude.insert(ai_entity);
-    for desc in children_query.iter_descendants(ai_entity) {
-        exclude.insert(desc);
+        let Ok(children) = children_query.get(ai_entity) else { continue };
+        let mut blaster_pos = ai_global.translation();
+        for child in children.iter() {
+            if let Ok(global) = blaster_global_query.get(child) {
+                blaster_pos = global.translation();
+                break;
+            }
+        }
+
+        let aim_point = target_pos + Vec3::new(0.0, 1.0, 0.0);
+        let direction = (aim_point - blaster_pos).normalize_or(Vec3::Z);
+        let spawn_pos = blaster_pos + direction * 1.0;
+
+        let mut exclude = HashSet::new();
+        exclude.insert(ai_entity);
+        for desc in children_query.iter_descendants(ai_entity) {
+            exclude.insert(desc);
+        }
+
+        commands.spawn((
+            Mesh3d(meshes.add(Sphere::new(BULLET_RADIUS).mesh().ico(2).unwrap())),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: ai_config.bullet_color.into(),
+                emissive: ai_config.bullet_emissive,
+                ..default()
+            })),
+            Transform::from_translation(spawn_pos),
+            Bullet {
+                velocity: direction * BULLET_SPEED,
+                lifetime: Timer::from_seconds(5.0, TimerMode::Once),
+            },
+            ExcludeMeshRayCast(exclude),
+        ));
     }
-
-    commands.spawn((
-        Mesh3d(meshes.add(Sphere::new(BULLET_RADIUS).mesh().ico(2).unwrap())),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Srgba::hex("ff4400").unwrap().into(),
-            emissive: LinearRgba::new(6.0, 1.0, 0.0, 1.0),
-            ..default()
-        })),
-        Transform::from_translation(spawn_pos),
-        Bullet {
-            velocity: direction * BULLET_SPEED,
-            lifetime: Timer::from_seconds(5.0, TimerMode::Once),
-        },
-        ExcludeMeshRayCast(exclude),
-    ));
 }
