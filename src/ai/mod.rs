@@ -148,16 +148,20 @@ fn ai_compute_pivot(
 
 fn ai_aim_blaster(
     ai_query: Query<(Entity, &GlobalTransform, &AiConfig), With<AiCar>>,
+    player_query: Query<Entity, With<PlayerCar>>,
     all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
     children_query: Query<&Children>,
     mut blaster_query: Query<(&AiPivotCache, &mut Transform), (With<AiBlasterVisual>, Without<AiCar>)>,
 ) {
+    let player_entity = player_query.single().ok();
+
     for (ai_entity, ai_global, ai_config) in ai_query.iter() {
         let mut best_dist = f32::MAX;
         let mut target_pos = ai_global.translation();
         for (other_entity, other_global) in all_cars.iter() {
             if other_entity == ai_entity { continue; }
-            let d = (other_global.translation() - ai_global.translation()).length();
+            let mut d = (other_global.translation() - ai_global.translation()).length();
+            if player_entity == Some(other_entity) { d *= 0.85; }
             if d < best_dist {
                 best_dist = d;
                 target_pos = other_global.translation();
@@ -197,12 +201,14 @@ fn ai_aim_blaster(
 fn ai_drive(
     time: Res<Time>,
     mut ai_query: Query<(Entity, &GlobalTransform, &mut LinearVelocity, &mut AngularVelocity), With<AiCar>>,
+    player_query: Query<Entity, With<PlayerCar>>,
     all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
 ) {
     let dt = time.delta_secs();
     let car_data: Vec<(Entity, Vec3)> = all_cars.iter()
         .map(|(e, t)| (e, t.translation()))
         .collect();
+    let player_entity = player_query.single().ok();
 
     for (ai_entity, ai_transform, mut lin_vel, mut ang_vel) in ai_query.iter_mut() {
         let ai_pos = ai_transform.translation();
@@ -219,7 +225,8 @@ fn ai_drive(
         for (other_entity, other_pos) in &car_data {
             if *other_entity == ai_entity { continue; }
             let flat = Vec3::new(other_pos.x - ai_pos.x, 0.0, other_pos.z - ai_pos.z);
-            let d = flat.length();
+            let mut d = flat.length();
+            if player_entity == Some(*other_entity) { d *= 0.85; }
             if d < best_dist && d > 0.01 {
                 best_dist = d;
                 target_pos = *other_pos;
@@ -258,6 +265,7 @@ fn ai_drive(
 fn ai_shoot(
     time: Res<Time>,
     mut ai_query: Query<(Entity, &GlobalTransform, &AiConfig, &mut AiShootTimer), With<AiCar>>,
+    player_query: Query<Entity, With<PlayerCar>>,
     all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
     blaster_global_query: Query<&GlobalTransform, With<AiBlasterVisual>>,
     children_query: Query<&Children>,
@@ -268,6 +276,7 @@ fn ai_shoot(
     let car_data: Vec<(Entity, Vec3)> = all_cars.iter()
         .map(|(e, t)| (e, t.translation()))
         .collect();
+    let player_entity = player_query.single().ok();
 
     for (ai_entity, ai_global, ai_config, mut shoot_timer) in ai_query.iter_mut() {
         shoot_timer.timer.tick(time.delta());
@@ -277,7 +286,8 @@ fn ai_shoot(
         let mut target_pos = ai_global.translation();
         for (other_entity, other_pos) in &car_data {
             if *other_entity == ai_entity { continue; }
-            let d = (*other_pos - ai_global.translation()).length();
+            let mut d = (*other_pos - ai_global.translation()).length();
+            if player_entity == Some(*other_entity) { d *= 0.85; }
             if d < best_dist {
                 best_dist = d;
                 target_pos = *other_pos;
