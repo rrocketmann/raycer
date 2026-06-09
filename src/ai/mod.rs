@@ -148,12 +148,12 @@ fn ai_compute_pivot(
 
 fn ai_aim_blaster(
     ai_query: Query<(Entity, &GlobalTransform, &AiConfig), With<AiCar>>,
-    player_query: Query<Entity, With<PlayerCar>>,
+    player_entity_res: Query<Entity, With<PlayerCar>>,
     all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
     children_query: Query<&Children>,
     mut blaster_query: Query<(&AiPivotCache, &mut Transform), (With<AiBlasterVisual>, Without<AiCar>)>,
 ) {
-    let player_entity = player_query.single().ok();
+    let player_entity = player_entity_res.single().ok();
 
     for (ai_entity, ai_global, ai_config) in ai_query.iter() {
         let mut best_dist = f32::MAX;
@@ -201,14 +201,15 @@ fn ai_aim_blaster(
 fn ai_drive(
     time: Res<Time>,
     mut ai_query: Query<(Entity, &GlobalTransform, &mut LinearVelocity, &mut AngularVelocity), With<AiCar>>,
-    player_query: Query<Entity, With<PlayerCar>>,
+    player_query: Query<&GlobalTransform, With<PlayerCar>>,
     all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
 ) {
     let dt = time.delta_secs();
     let car_data: Vec<(Entity, Vec3)> = all_cars.iter()
         .map(|(e, t)| (e, t.translation()))
         .collect();
-    let player_entity = player_query.single().ok();
+    let Ok(player_transform) = player_query.single() else { return };
+    let player_pos = player_transform.translation();
 
     for (ai_entity, ai_transform, mut lin_vel, mut ang_vel) in ai_query.iter_mut() {
         let ai_pos = ai_transform.translation();
@@ -220,23 +221,34 @@ fn ai_drive(
             continue;
         }
 
-        let mut best_dist = f32::MAX;
-        let mut target_pos = ai_pos + ai_rot * Vec3::Z;
+        let to_player = player_pos - ai_pos;
+        let flat_to_player = Vec3::new(to_player.x, 0.0, to_player.z);
+        let player_dist = flat_to_player.length();
+
+        let boredom = if player_dist > 20.0 {
+            1.0 + (player_dist - 20.0) / 30.0
+        } else {
+            player_dist / 20.0
+        };
+
+        let chase_dir = if flat_to_player.length_squared() > 1.0 {
+            flat_to_player.normalize_or(Vec3::Z) * boredom
+        } else {
+            Vec3::ZERO
+        };
+
+        let mut flee_dir = Vec3::ZERO;
         for (other_entity, other_pos) in &car_data {
             if *other_entity == ai_entity { continue; }
-            let flat = Vec3::new(other_pos.x - ai_pos.x, 0.0, other_pos.z - ai_pos.z);
-            let mut d = flat.length();
-            if player_entity == Some(*other_entity) { d *= 0.85; }
-            if d < best_dist && d > 0.01 {
-                best_dist = d;
-                target_pos = *other_pos;
+            let away = ai_pos - *other_pos;
+            let flat_away = Vec3::new(away.x, 0.0, away.z);
+            let d = flat_away.length();
+            if d < 15.0 && d > 0.01 {
+                flee_dir += flat_away.normalize_or(Vec3::ZERO) * (1.0 - d / 15.0);
             }
         }
 
-        let to_target = target_pos - ai_pos;
-        let flat_to_target = Vec3::new(to_target.x, 0.0, to_target.z);
-        if flat_to_target.length_squared() < 1.0 { continue; }
-        let desired_dir = flat_to_target.normalize_or(Vec3::Z);
+        let desired_dir = (chase_dir + flee_dir).normalize_or(flat_to_player.normalize_or(Vec3::Z));
 
         let forward = ai_rot * Vec3::Z;
         let flat_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or(Vec3::Z);
@@ -265,7 +277,7 @@ fn ai_drive(
 fn ai_shoot(
     time: Res<Time>,
     mut ai_query: Query<(Entity, &GlobalTransform, &AiConfig, &mut AiShootTimer), With<AiCar>>,
-    player_query: Query<Entity, With<PlayerCar>>,
+    player_entity_res: Query<Entity, With<PlayerCar>>,
     all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
     blaster_global_query: Query<&GlobalTransform, With<AiBlasterVisual>>,
     children_query: Query<&Children>,
@@ -276,7 +288,7 @@ fn ai_shoot(
     let car_data: Vec<(Entity, Vec3)> = all_cars.iter()
         .map(|(e, t)| (e, t.translation()))
         .collect();
-    let player_entity = player_query.single().ok();
+    let player_entity = player_entity_res.single().ok();
 
     for (ai_entity, ai_global, ai_config, mut shoot_timer) in ai_query.iter_mut() {
         shoot_timer.timer.tick(time.delta());
