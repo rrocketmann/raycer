@@ -46,9 +46,9 @@ fn spawn_ai_cars(
     asset_server: Res<AssetServer>,
 ) {
     let spawns: Vec<(usize, usize, Vec3, Srgba, LinearRgba)> = vec![
-        (3, 1, Vec3::new(10.0, 3.0, 10.0), Srgba::hex("ff4400").unwrap(), LinearRgba::new(6.0, 1.0, 0.0, 1.0)),
-        (5, 1, Vec3::new(-10.0, 3.0, -10.0), Srgba::hex("00bbff").unwrap(), LinearRgba::new(0.0, 4.0, 6.0, 1.0)),
-        (8, 1, Vec3::new(20.0, 3.0, -5.0), Srgba::hex("cc00ff").unwrap(), LinearRgba::new(6.0, 0.0, 4.0, 1.0)),
+        (3, 1, Vec3::new(40.0, 3.0, 40.0), Srgba::hex("ff4400").unwrap(), LinearRgba::new(6.0, 1.0, 0.0, 1.0)),
+        (5, 1, Vec3::new(-40.0, 3.0, -40.0), Srgba::hex("00bbff").unwrap(), LinearRgba::new(0.0, 4.0, 6.0, 1.0)),
+        (8, 1, Vec3::new(50.0, 3.0, -30.0), Srgba::hex("cc00ff").unwrap(), LinearRgba::new(6.0, 0.0, 4.0, 1.0)),
     ];
 
     for (car_index, blaster_index, pos, bullet_color, bullet_emissive) in spawns {
