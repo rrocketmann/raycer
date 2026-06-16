@@ -15,7 +15,7 @@ bevy_camera = "0.18"
 
 [features]
 default = []
-web = ["bevy/webgl2"]
+web = ["bevy/webgpu"]
 dev = []
 
 [profile.dev]
