@@ -67,7 +67,7 @@ struct AimInfo {
     aim_point: Option<Vec3>,
 }
 
-pub const BULLET_SPEED: f32 = 30.0;
+pub const BULLET_SPEED: f32 = 80.0;
 pub const BULLET_RADIUS: f32 = 0.5;
 pub const BULLET_LIFETIME_SECS: f32 = 5.0;
 

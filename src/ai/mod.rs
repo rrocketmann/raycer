@@ -1,8 +1,10 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::collections::HashSet;
+use std::time::Duration;
 use crate::blaster::{Bullet, ExcludeMeshRayCast, BLASTER_DEFS, BULLET_RADIUS, BULLET_SPEED};
 use crate::car::{AiCar, CarVisual, PlayerCar, CAR_DEFS, mount_y};
+use rand::Rng;
 
 #[derive(Component)]
 pub struct AiBlasterVisual;
@@ -61,7 +63,6 @@ fn spawn_ai_cars(
 
         let ai_root = commands.spawn((
             AiCar,
-            AiConfig { car_index, bullet_color, bullet_emissive },
             RigidBody::Dynamic,
             Position(pos),
             Rotation(Quat::from_rotation_y(f32::atan2(-pos.x, -pos.z))),
@@ -77,9 +78,12 @@ fn spawn_ai_cars(
             Mass(6.0),
         )).id();
 
+        let mut rng = rand::rng();
+        let shoot_interval = rng.random_range(1.0..4.0);
         commands.entity(ai_root).insert((
             GravityScale(1.0),
-            AiShootTimer { timer: Timer::from_seconds(1.5, TimerMode::Repeating) },
+            AiShootTimer { timer: Timer::from_seconds(shoot_interval, TimerMode::Repeating) },
+            AiConfig { car_index, bullet_color, bullet_emissive },
         ));
 
         commands.entity(ai_root).with_children(|parent| {
@@ -294,6 +298,11 @@ fn ai_shoot(
         shoot_timer.timer.tick(time.delta());
         if !shoot_timer.timer.just_finished() { continue; }
 
+        let mut rng = rand::rng();
+        let new_interval = rng.random_range(1.0..4.0);
+        shoot_timer.timer.set_duration(Duration::from_secs_f32(new_interval));
+        shoot_timer.timer.reset();
+
         let mut best_dist = f32::MAX;
         let mut target_pos = ai_global.translation();
         for (other_entity, other_pos) in &car_data {
@@ -305,6 +314,8 @@ fn ai_shoot(
                 target_pos = *other_pos;
             }
         }
+
+        let aim_point = target_pos + Vec3::new(rng.random_range(-3.0..3.0), rng.random_range(-1.0..2.0), rng.random_range(-3.0..3.0));
 
         let Ok(children) = children_query.get(ai_entity) else { continue };
         let mut blaster_pos = ai_global.translation();
