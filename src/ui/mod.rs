@@ -73,6 +73,8 @@ fn pre_game_ui(
                     egui::Layout::top_down(egui::Align::Center),
                     |ui| {
                         // Car row
+                        ui.label(egui::RichText::new("CAR").size(11.0).color(egui::Color32::from_rgb(130, 130, 130)));
+                        ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
@@ -89,12 +91,12 @@ fn pre_game_ui(
                                 car_selection.pending_change = true;
                             }
                         });
-                        ui.add_space(-4.0);
-                        ui.label(egui::RichText::new("CAR").size(11.0).color(egui::Color32::from_rgb(130, 130, 130)));
 
                         ui.add_space(20.0);
 
                         // Blaster row
+                        ui.label(egui::RichText::new("BLASTER").size(11.0).color(egui::Color32::from_rgb(130, 130, 130)));
+                        ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
@@ -111,12 +113,12 @@ fn pre_game_ui(
                                 blaster_selection.pending_change = true;
                             }
                         });
-                        ui.add_space(-4.0);
-                        ui.label(egui::RichText::new("BLASTER").size(11.0).color(egui::Color32::from_rgb(130, 130, 130)));
 
                         ui.add_space(20.0);
 
                         // Opponents row
+                        ui.label(egui::RichText::new("OPPONENTS").size(11.0).color(egui::Color32::from_rgb(130, 130, 130)));
+                        ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
@@ -131,8 +133,6 @@ fn pre_game_ui(
                                 ai_enemy_count.0 = (ai_enemy_count.0 + 1).min(10);
                             }
                         });
-                        ui.add_space(-4.0);
-                        ui.label(egui::RichText::new("OPPONENTS").size(11.0).color(egui::Color32::from_rgb(130, 130, 130)));
                     },
                 );
 

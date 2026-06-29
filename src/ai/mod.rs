@@ -457,7 +457,9 @@ fn ai_shoot(
             }
         }
 
-        let direction = (aim_point - blaster_pos).normalize_or(Vec3::Z);
+        let mut direction = aim_point - blaster_pos;
+        direction.y = 0.0;
+        let direction = direction.normalize_or(Vec3::Z);
         let spawn_pos = blaster_pos + direction * 1.0;
 
         let mut exclude = HashSet::new();
