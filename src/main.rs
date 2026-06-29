@@ -5,9 +5,27 @@ use avian3d::prelude::*;
 mod ai;
 mod blaster;
 mod car;
-mod splash;
 mod track;
 mod ui;
+
+#[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
+enum GameState {
+    #[default]
+    Loading,
+    PreGame,
+    Playing,
+}
+
+fn enter_pregame(mut next_state: ResMut<NextState<GameState>>) {
+    next_state.set(GameState::PreGame);
+}
+
+#[derive(Resource)]
+struct AiEnemyCount(usize);
+
+impl Default for AiEnemyCount {
+    fn default() -> Self { Self(3) }
+}
 
 fn main() {
     let window_plugin = WindowPlugin {
@@ -30,7 +48,10 @@ fn main() {
             ..default()
         })
         .add_plugins(bevy_egui::EguiPlugin::default())
-        .add_plugins((splash::SplashPlugin, ai::AiPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
+        .init_state::<GameState>()
+        .init_resource::<AiEnemyCount>()
+        .add_systems(Update, enter_pregame.run_if(in_state(GameState::Loading)))
+        .add_plugins((ai::AiPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
 
     #[cfg(feature = "dev")]
     app.add_plugins(avian3d::debug_render::PhysicsDebugPlugin);

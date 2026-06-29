@@ -1,28 +1,41 @@
 use bevy::prelude::*;
 use avian3d::prelude::*;
 use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, ShadowFilteringMethod};
-use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData};
+use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData, CarSelection};
+use crate::blaster::{BlasterSelection, BLASTER_DEFS};
+use crate::GameState;
 
 #[derive(Component)]
 struct MapRoot;
+
+#[derive(Component)]
+struct WorldMarker;
 
 pub struct TrackPlugin;
 
 impl Plugin for TrackPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_world);
+        app.add_systems(OnEnter(GameState::PreGame), spawn_world)
+            .add_systems(OnExit(GameState::PreGame), cleanup_world)
+            .add_systems(OnEnter(GameState::Playing), spawn_world);
     }
 }
 
 fn spawn_world(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    car_selection: Res<CarSelection>,
+    blaster_selection: Res<BlasterSelection>,
 ) {
-    let def = &CAR_DEFS[0];
+    let def = &CAR_DEFS[car_selection.index];
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
+    let blaster_def = &BLASTER_DEFS[blaster_selection.index];
+    let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
+    let mount_y = crate::car::mount_y(def.collider.y);
     let car_root = commands.spawn((
         Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
+        WorldMarker,
         RigidBody::Dynamic,
         Position(Vec3::new(0.0, 3.0, 0.0)),
         Rotation::default(),
@@ -51,6 +64,14 @@ fn spawn_world(
             CarCollider,
         ));
         parent.spawn((SceneRoot(car_scene), CarVisual));
+        parent.spawn((
+            SceneRoot(blaster_scene),
+            Transform::from_translation(Vec3::new(0.0, mount_y, 0.0))
+                .with_scale(Vec3::splat(blaster_def.scale))
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+            crate::blaster::BlasterVisual,
+            crate::blaster::ComputePivot,
+        ));
     });
 
     let map_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Map.glb"));
@@ -62,6 +83,7 @@ fn spawn_world(
             ColliderConstructor::TrimeshFromMeshWithConfig(TrimeshFlags::FIX_INTERNAL_EDGES),
         ),
         MapRoot,
+        WorldMarker,
     ));
 
     commands.spawn((
@@ -80,6 +102,7 @@ fn spawn_world(
             first_cascade_far_bound: 15.0,
             overlap_proportion: 0.3,
         }.build(),
+        WorldMarker,
     ));
 
     commands.insert_resource(DirectionalLightShadowMap { size: 4096 });
@@ -93,5 +116,12 @@ fn spawn_world(
         Transform::from_xyz(0.0, 8.0, -22.0).looking_at(Vec3::ZERO, Vec3::Y),
         CarCamera,
         ShadowFilteringMethod::Gaussian,
+        WorldMarker,
     ));
+}
+
+fn cleanup_world(mut commands: Commands, q: Query<Entity, With<WorldMarker>>) {
+    for e in q.iter() {
+        commands.entity(e).despawn();
+    }
 }

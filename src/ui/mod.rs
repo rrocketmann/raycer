@@ -1,42 +1,164 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::car::{CarSelection, CarState, CAR_DEFS, PlayerCar};
+use crate::car::{CarSelection, CarState, CAR_DEFS};
 use crate::car::Telemetry;
 use crate::blaster::{BlasterSelection, BLASTER_DEFS};
+use crate::GameState;
+use crate::AiEnemyCount;
 
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CarDropdownOpen>()
-            .init_resource::<BlasterDropdownOpen>()
-            .add_systems(EguiPrimaryContextPass, egui_panel);
+        app.add_systems(EguiPrimaryContextPass, egui_panel);
     }
 }
-
-#[derive(Resource, Default)]
-struct CarDropdownOpen(bool);
-
-#[derive(Resource, Default)]
-struct BlasterDropdownOpen(bool);
 
 fn egui_panel(
     mut contexts: EguiContexts,
     telemetry: Res<Telemetry>,
     _car_state: Res<CarState>,
     mut car_selection: ResMut<CarSelection>,
-    mut dropdown: ResMut<CarDropdownOpen>,
     mut blaster_selection: ResMut<BlasterSelection>,
-    mut blaster_dropdown: ResMut<BlasterDropdownOpen>,
-    _car_query: Query<&avian3d::prelude::Rotation, With<PlayerCar>>,
     keys: Res<ButtonInput<KeyCode>>,
+    game_state: Res<State<GameState>>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut ai_enemy_count: ResMut<AiEnemyCount>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
+    match game_state.get() {
+        GameState::Loading => {}
+        GameState::PreGame => {
+            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut next_state);
+        }
+        GameState::Playing => {
+            playing_ui(ctx, &telemetry, &mut car_selection, &mut blaster_selection, &keys);
+        }
+    }
+}
+
+fn name_box(ui: &mut egui::Ui, text: &str) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(100.0, 32.0), egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(35, 35, 35));
+    painter.rect_stroke(rect, 4.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 70, 70)), egui::StrokeKind::Outside);
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, text, egui::FontId::proportional(14.0), egui::Color32::WHITE);
+}
+
+fn pre_game_ui(
+    ctx: &egui::Context,
+    car_selection: &mut CarSelection,
+    blaster_selection: &mut BlasterSelection,
+    ai_enemy_count: &mut AiEnemyCount,
+    next_state: &mut NextState<GameState>,
+) {
+    let panel_w = 260.0;
+    let btn_size = 32.0;
+
+    egui::CentralPanel::default()
+        .frame(egui::Frame::new())
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(60.0);
+                ui.label(egui::RichText::new("RAYCER").size(56.0).color(egui::Color32::WHITE).strong());
+                ui.add_space(60.0);
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(panel_w, 220.0),
+                    egui::Layout::top_down(egui::Align::Center),
+                    |ui| {
+                        // Car row
+                        ui.horizontal(|ui| {
+                            ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new("<").size(16.0).color(egui::Color32::WHITE),
+                            ).fill(egui::Color32::from_rgb(50, 50, 50))).clicked() {
+                                car_selection.index = if car_selection.index == 0 { CAR_DEFS.len() - 1 } else { car_selection.index - 1 };
+                                car_selection.pending_change = true;
+                            }
+                            name_box(ui, CAR_DEFS[car_selection.index].name);
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new(">").size(16.0).color(egui::Color32::WHITE),
+                            ).fill(egui::Color32::from_rgb(50, 50, 50))).clicked() {
+                                car_selection.index = (car_selection.index + 1) % CAR_DEFS.len();
+                                car_selection.pending_change = true;
+                            }
+                        });
+                        ui.add_space(-4.0);
+                        ui.label(egui::RichText::new("CAR").size(11.0).color(egui::Color32::from_rgb(130, 130, 130)));
+
+                        ui.add_space(20.0);
+
+                        // Blaster row
+                        ui.horizontal(|ui| {
+                            ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new("<").size(16.0).color(egui::Color32::WHITE),
+                            ).fill(egui::Color32::from_rgb(50, 50, 50))).clicked() {
+                                blaster_selection.index = if blaster_selection.index == 0 { BLASTER_DEFS.len() - 1 } else { blaster_selection.index - 1 };
+                                blaster_selection.pending_change = true;
+                            }
+                            name_box(ui, BLASTER_DEFS[blaster_selection.index].name);
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new(">").size(16.0).color(egui::Color32::WHITE),
+                            ).fill(egui::Color32::from_rgb(50, 50, 50))).clicked() {
+                                blaster_selection.index = (blaster_selection.index + 1) % BLASTER_DEFS.len();
+                                blaster_selection.pending_change = true;
+                            }
+                        });
+                        ui.add_space(-4.0);
+                        ui.label(egui::RichText::new("BLASTER").size(11.0).color(egui::Color32::from_rgb(130, 130, 130)));
+
+                        ui.add_space(20.0);
+
+                        // Opponents row
+                        ui.horizontal(|ui| {
+                            ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new("<").size(16.0).color(egui::Color32::WHITE),
+                            ).fill(egui::Color32::from_rgb(50, 50, 50))).clicked() {
+                                ai_enemy_count.0 = ai_enemy_count.0.saturating_sub(1);
+                            }
+                            name_box(ui, &format!("{}", ai_enemy_count.0));
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new(">").size(16.0).color(egui::Color32::WHITE),
+                            ).fill(egui::Color32::from_rgb(50, 50, 50))).clicked() {
+                                ai_enemy_count.0 = (ai_enemy_count.0 + 1).min(10);
+                            }
+                        });
+                        ui.add_space(-4.0);
+                        ui.label(egui::RichText::new("OPPONENTS").size(11.0).color(egui::Color32::from_rgb(130, 130, 130)));
+                    },
+                );
+
+                ui.add_space(36.0);
+
+                // Start button
+                let start_resp = ui.add_sized(
+                    [panel_w, 42.0],
+                    egui::Button::new(
+                        egui::RichText::new("START").size(18.0).strong().color(egui::Color32::WHITE),
+                    ).fill(egui::Color32::from_rgb(80, 80, 80)),
+                );
+                if start_resp.clicked() {
+                    next_state.set(GameState::Playing);
+                }
+            });
+        });
+}
+
+fn playing_ui(
+    ctx: &egui::Context,
+    telemetry: &Telemetry,
+    car_selection: &mut CarSelection,
+    blaster_selection: &mut BlasterSelection,
+    keys: &ButtonInput<KeyCode>,
+) {
     let w = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
     let a = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
     let s_pressed = keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown);
@@ -74,130 +196,32 @@ fn egui_panel(
 
     let current_name = CAR_DEFS[car_selection.index].name;
     let car_selector_width = 130.0;
-    let item_height = 20.0;
-    let max_visible = 8;
-    let total = CAR_DEFS.len() as f32;
 
-    let dropdown_height = if dropdown.0 {
-        (total * item_height).min(max_visible as f32 * item_height)
-    } else {
-        0.0
-    };
-
-    let car_btn_rect = egui::Area::new("car_selector".into())
-        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0 - dropdown_height))
+    egui::Area::new("car_sel_playing".into())
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
         .show(ctx, |ui| {
-            let btn_text = current_name.to_string();
-
-            let btn_resp = ui.add_sized(
-                [car_selector_width, 22.0],
-                egui::Button::new(
-                    egui::RichText::new(btn_text).size(12.0).color(egui::Color32::from_rgb(220, 220, 220)),
-                ),
-            );
-
-            if btn_resp.clicked() {
-                dropdown.0 = !dropdown.0;
+            if ui.add_sized([car_selector_width, 22.0], egui::Button::new(
+                egui::RichText::new(current_name).size(12.0).color(egui::Color32::from_rgb(220, 220, 220)),
+            )).clicked() {
+                car_selection.index = (car_selection.index + 1) % CAR_DEFS.len();
+                car_selection.pending_change = true;
             }
-            btn_resp.rect
-        }).inner;
-
-    let mut car_drop_rect = None;
-    if dropdown.0 {
-        car_drop_rect = Some(egui::Area::new("car_dropdown".into())
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0 - 22.0))
-            .show(ctx, |ui| {
-                let area_rect = ui.max_rect();
-                egui::ScrollArea::vertical()
-                    .max_height(max_visible as f32 * item_height)
-                    .id_salt("car_list_scroll")
-                    .show(ui, |ui| {
-                        ui.set_width(car_selector_width);
-                        for (i, def) in CAR_DEFS.iter().enumerate() {
-                            let selected = i == car_selection.index;
-                            let (bg, fg) = if selected {
-                                (egui::Color32::from_rgb(100, 200, 255), egui::Color32::BLACK)
-                            } else {
-                                (egui::Color32::from_rgb(35, 35, 35), egui::Color32::from_rgb(200, 200, 200))
-                            };
-                            let item_resp = ui.add_sized(
-                                [car_selector_width, item_height],
-                                egui::Button::new(
-                                    egui::RichText::new(def.name).size(12.0).color(fg),
-                                ).fill(bg).stroke(egui::Stroke::NONE),
-                            );
-                            if item_resp.clicked() && i != car_selection.index {
-                                car_selection.index = i;
-                                car_selection.pending_change = true;
-                                dropdown.0 = false;
-                            }
-                        }
-                    });
-                area_rect
-            }).inner);
-    }
+        });
 
     let blaster_name = BLASTER_DEFS[blaster_selection.index].name;
     let blaster_select_width = 130.0;
-    let blaster_item_h = 20.0;
-    let blaster_total = BLASTER_DEFS.len() as f32;
-    let blaster_drop_h = if blaster_dropdown.0 {
-        (blaster_total * blaster_item_h).min(8.0 * blaster_item_h)
-    } else {
-        0.0
-    };
-
     let blaster_x = 136.0;
 
-    let blaster_btn_rect = egui::Area::new("blaster_selector".into())
-        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(blaster_x, -12.0 - blaster_drop_h))
+    egui::Area::new("blaster_sel_playing".into())
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(blaster_x, -12.0))
         .show(ctx, |ui| {
-            let b_resp = ui.add_sized(
-                [blaster_select_width, 22.0],
-                egui::Button::new(
-                    egui::RichText::new(blaster_name).size(12.0).color(egui::Color32::from_rgb(220, 220, 220)),
-                ),
-            );
-            if b_resp.clicked() {
-                blaster_dropdown.0 = !blaster_dropdown.0;
+            if ui.add_sized([blaster_select_width, 22.0], egui::Button::new(
+                egui::RichText::new(blaster_name).size(12.0).color(egui::Color32::from_rgb(220, 220, 220)),
+            )).clicked() {
+                blaster_selection.index = (blaster_selection.index + 1) % BLASTER_DEFS.len();
+                blaster_selection.pending_change = true;
             }
-            b_resp.rect
-        }).inner;
-
-    let mut blaster_drop_rect = None;
-    if blaster_dropdown.0 {
-        blaster_drop_rect = Some(egui::Area::new("blaster_dropdown".into())
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(blaster_x, -12.0 - 22.0))
-            .show(ctx, |ui| {
-                let area_rect = ui.max_rect();
-                egui::ScrollArea::vertical()
-                    .max_height(8.0 * blaster_item_h)
-                    .id_salt("blaster_list_scroll")
-                    .show(ui, |ui| {
-                        ui.set_width(blaster_select_width);
-                        for (i, def) in BLASTER_DEFS.iter().enumerate() {
-                            let selected = i == blaster_selection.index;
-                            let (bg, fg) = if selected {
-                                (egui::Color32::from_rgb(100, 200, 255), egui::Color32::BLACK)
-                            } else {
-                                (egui::Color32::from_rgb(35, 35, 35), egui::Color32::from_rgb(200, 200, 200))
-                            };
-                            let item_resp = ui.add_sized(
-                                [blaster_select_width, blaster_item_h],
-                                egui::Button::new(
-                                    egui::RichText::new(def.name).size(12.0).color(fg),
-                                ).fill(bg).stroke(egui::Stroke::NONE),
-                            );
-                            if item_resp.clicked() && i != blaster_selection.index {
-                                blaster_selection.index = i;
-                                blaster_selection.pending_change = true;
-                                blaster_dropdown.0 = false;
-                            }
-                        }
-                    });
-                area_rect
-            }).inner);
-    }
+        });
 
     egui::Area::new("bottom_right_speed".into())
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
@@ -222,24 +246,6 @@ fn egui_panel(
                     });
                 });
         });
-
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        dropdown.0 = false;
-        blaster_dropdown.0 = false;
-    }
-
-    let any_click = ctx.input(|i| i.pointer.any_click());
-    if any_click && (dropdown.0 || blaster_dropdown.0) {
-        let pos = ctx.input(|i| i.pointer.latest_pos().unwrap_or(egui::Pos2::ZERO));
-        let in_car_btn = car_btn_rect.contains(pos);
-        let in_car_drop = car_drop_rect.is_some_and(|r| r.contains(pos));
-        let in_blaster_btn = blaster_btn_rect.contains(pos);
-        let in_blaster_drop = blaster_drop_rect.is_some_and(|r| r.contains(pos));
-        if !in_car_btn && !in_car_drop && !in_blaster_btn && !in_blaster_drop {
-            dropdown.0 = false;
-            blaster_dropdown.0 = false;
-        }
-    }
 }
 
 fn draw_key(ui: &mut egui::Ui, label: &str, pressed: bool, width: f32, height: f32) {

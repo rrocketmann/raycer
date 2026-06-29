@@ -4,6 +4,8 @@ use std::collections::HashSet;
 use std::time::Duration;
 use crate::blaster::{Bullet, ExcludeMeshRayCast, BLASTER_DEFS, BULLET_RADIUS, BULLET_SPEED};
 use crate::car::{AiCar, CarVisual, PlayerCar, CAR_DEFS, mount_y};
+use crate::GameState;
+use crate::AiEnemyCount;
 use rand::Rng;
 
 #[derive(Component)]
@@ -33,27 +35,52 @@ pub struct AiPlugin;
 
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_ai_cars)
+        app.add_systems(OnEnter(GameState::PreGame), spawn_ai_cars)
+            .add_systems(OnExit(GameState::PreGame), cleanup_ai_cars)
+            .add_systems(OnEnter(GameState::Playing), spawn_ai_cars)
+            .add_systems(OnExit(GameState::Playing), cleanup_ai_cars)
+            .add_systems(Update, sync_ai_count.run_if(in_state(GameState::PreGame)))
             .add_systems(Update, (
                 ai_compute_pivot,
                 ai_aim_blaster,
             ).chain())
-            .add_systems(Update, ai_drive)
-            .add_systems(Update, ai_shoot);
+            .add_systems(Update, ai_drive.run_if(in_state(GameState::Playing)))
+            .add_systems(Update, ai_shoot.run_if(in_state(GameState::Playing)));
     }
 }
+
+#[derive(Component)]
+struct AiSpawnMarker;
 
 fn spawn_ai_cars(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    enemy_count: Res<AiEnemyCount>,
 ) {
-    let spawns: Vec<(usize, usize, Vec3, Srgba, LinearRgba)> = vec![
-        (3, 1, Vec3::new(40.0, 3.0, 40.0), Srgba::hex("ff4400").unwrap(), LinearRgba::new(6.0, 1.0, 0.0, 1.0)),
-        (5, 1, Vec3::new(-40.0, 3.0, -40.0), Srgba::hex("00bbff").unwrap(), LinearRgba::new(0.0, 4.0, 6.0, 1.0)),
-        (8, 1, Vec3::new(50.0, 3.0, -30.0), Srgba::hex("cc00ff").unwrap(), LinearRgba::new(6.0, 0.0, 4.0, 1.0)),
+    let car_options: Vec<usize> = vec![3, 5, 8, 10, 13, 15, 0, 6];
+    let blaster_options: Vec<usize> = vec![1, 3, 5, 7, 9, 11, 13, 15, 17, 0];
+    let bullet_colors: Vec<(Srgba, LinearRgba)> = vec![
+        (Srgba::hex("ff4400").unwrap(), LinearRgba::new(6.0, 1.0, 0.0, 1.0)),
+        (Srgba::hex("00bbff").unwrap(), LinearRgba::new(0.0, 4.0, 6.0, 1.0)),
+        (Srgba::hex("cc00ff").unwrap(), LinearRgba::new(6.0, 0.0, 4.0, 1.0)),
+        (Srgba::hex("00ff88").unwrap(), LinearRgba::new(0.0, 6.0, 2.0, 1.0)),
+        (Srgba::hex("ffaa00").unwrap(), LinearRgba::new(6.0, 4.0, 0.0, 1.0)),
+        (Srgba::hex("ff0088").unwrap(), LinearRgba::new(6.0, 0.0, 3.0, 1.0)),
+        (Srgba::hex("88ff00").unwrap(), LinearRgba::new(3.0, 6.0, 0.0, 1.0)),
+        (Srgba::hex("0088ff").unwrap(), LinearRgba::new(0.0, 3.0, 6.0, 1.0)),
+        (Srgba::hex("ff6600").unwrap(), LinearRgba::new(6.0, 2.0, 0.0, 1.0)),
+        (Srgba::hex("aa00ff").unwrap(), LinearRgba::new(4.0, 0.0, 6.0, 1.0)),
     ];
 
-    for (car_index, blaster_index, pos, bullet_color, bullet_emissive) in spawns {
+    let count = enemy_count.0;
+    for i in 0..count {
+        let car_index = car_options[i % car_options.len()];
+        let blaster_index = blaster_options[i % blaster_options.len()];
+        let (bullet_color, bullet_emissive) = bullet_colors[i % bullet_colors.len()];
+
+        let angle = i as f32 * std::f32::consts::TAU / count as f32;
+        let radius = 40.0;
+        let pos = Vec3::new(angle.cos() * radius, 3.0, angle.sin() * radius);
         let def = &CAR_DEFS[car_index];
         let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
         let blaster_def = &BLASTER_DEFS[blaster_index];
@@ -63,6 +90,7 @@ fn spawn_ai_cars(
 
         let ai_root = commands.spawn((
             AiCar,
+            AiSpawnMarker,
             RigidBody::Dynamic,
             Position(pos),
             Rotation(Quat::from_rotation_y(f32::atan2(-pos.x, -pos.z))),
@@ -98,12 +126,115 @@ fn spawn_ai_cars(
             ));
             parent.spawn((
                 SceneRoot(blaster_scene),
-                Transform::from_translation(mount).with_scale(Vec3::splat(blaster_def.scale)),
+                Transform::from_translation(mount)
+                    .with_scale(Vec3::splat(blaster_def.scale))
+                    .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
                 AiBlasterVisual,
                 AiComputePivot,
                 AiPivotCache::default(),
             ));
         });
+    }
+}
+
+fn cleanup_ai_cars(mut commands: Commands, q: Query<Entity, With<AiSpawnMarker>>) {
+    for e in q.iter() {
+        commands.entity(e).despawn();
+    }
+}
+
+fn sync_ai_count(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    enemy_count: Res<AiEnemyCount>,
+    ai_query: Query<Entity, With<AiSpawnMarker>>,
+) {
+    let desired = enemy_count.0;
+    let current = ai_query.iter().count();
+
+    if current > desired {
+        let to_remove: Vec<Entity> = ai_query.iter().skip(desired).collect();
+        for e in to_remove {
+            commands.entity(e).despawn();
+        }
+    } else if current < desired {
+        let car_options: Vec<usize> = vec![3, 5, 8, 10, 13, 15, 0, 6];
+        let blaster_options: Vec<usize> = vec![1, 3, 5, 7, 9, 11, 13, 15, 17, 0];
+        let bullet_colors: Vec<(Srgba, LinearRgba)> = vec![
+            (Srgba::hex("ff4400").unwrap(), LinearRgba::new(6.0, 1.0, 0.0, 1.0)),
+            (Srgba::hex("00bbff").unwrap(), LinearRgba::new(0.0, 4.0, 6.0, 1.0)),
+            (Srgba::hex("cc00ff").unwrap(), LinearRgba::new(6.0, 0.0, 4.0, 1.0)),
+            (Srgba::hex("00ff88").unwrap(), LinearRgba::new(0.0, 6.0, 2.0, 1.0)),
+            (Srgba::hex("ffaa00").unwrap(), LinearRgba::new(6.0, 4.0, 0.0, 1.0)),
+            (Srgba::hex("ff0088").unwrap(), LinearRgba::new(6.0, 0.0, 3.0, 1.0)),
+            (Srgba::hex("88ff00").unwrap(), LinearRgba::new(3.0, 6.0, 0.0, 1.0)),
+            (Srgba::hex("0088ff").unwrap(), LinearRgba::new(0.0, 3.0, 6.0, 1.0)),
+            (Srgba::hex("ff6600").unwrap(), LinearRgba::new(6.0, 2.0, 0.0, 1.0)),
+            (Srgba::hex("aa00ff").unwrap(), LinearRgba::new(4.0, 0.0, 6.0, 1.0)),
+        ];
+
+        for i in current..desired {
+            let car_index = car_options[i % car_options.len()];
+            let blaster_index = blaster_options[i % blaster_options.len()];
+            let (bullet_color, bullet_emissive) = bullet_colors[i % bullet_colors.len()];
+
+            let angle = i as f32 * std::f32::consts::TAU / desired as f32;
+            let radius = 40.0;
+            let pos = Vec3::new(angle.cos() * radius, 3.0, angle.sin() * radius);
+            let def = &CAR_DEFS[car_index];
+            let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
+            let blaster_def = &BLASTER_DEFS[blaster_index];
+            let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
+            let half_height = def.collider.y * 0.5;
+            let mount = Vec3::new(0.0, mount_y(def.collider.y), 0.0);
+
+            let ai_root = commands.spawn((
+                AiCar,
+                AiSpawnMarker,
+                RigidBody::Dynamic,
+                Position(pos),
+                Rotation(Quat::from_rotation_y(f32::atan2(-pos.x, -pos.z))),
+                LinearVelocity::ZERO,
+                AngularVelocity::ZERO,
+                LinearDamping(0.5),
+                AngularDamping(1.0),
+                MaxLinearSpeed(80.0),
+                MaxAngularSpeed(4.0),
+                CenterOfMass(Vec3::ZERO),
+                Friction::new(0.01),
+                SweptCcd::NON_LINEAR,
+                Mass(6.0),
+            )).id();
+
+            let mut rng = rand::rng();
+            let shoot_interval = rng.random_range(1.0..4.0);
+            commands.entity(ai_root).insert((
+                GravityScale(1.0),
+                AiShootTimer { timer: Timer::from_seconds(shoot_interval, TimerMode::Repeating) },
+                AiConfig { car_index, bullet_color, bullet_emissive },
+            ));
+
+            commands.entity(ai_root).with_children(|parent| {
+                parent.spawn((
+                    Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
+                    Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
+                    CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
+                ));
+                parent.spawn((
+                    SceneRoot(car_scene),
+                    CarVisual,
+                ));
+                parent.spawn((
+                    SceneRoot(blaster_scene),
+                    Transform::from_translation(mount)
+                        .with_scale(Vec3::splat(blaster_def.scale))
+                        .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                    AiBlasterVisual,
+                    AiComputePivot,
+                    AiPivotCache::default(),
+                ));
+            });
+        }
     }
 }
 
@@ -326,7 +457,6 @@ fn ai_shoot(
             }
         }
 
-        let aim_point = target_pos + Vec3::new(0.0, 1.0, 0.0);
         let direction = (aim_point - blaster_pos).normalize_or(Vec3::Z);
         let spawn_pos = blaster_pos + direction * 1.0;
 

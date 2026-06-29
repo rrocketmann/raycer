@@ -2,6 +2,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::input::mouse::{MouseWheel, MouseMotion};
 use bevy::ecs::message::MessageReader;
+use crate::GameState;
 
 pub struct CarDef {
     pub name: &'static str,
@@ -56,11 +57,11 @@ impl Plugin for CarPlugin {
             .init_resource::<CameraState>()
             .add_systems(
                 FixedPostUpdate,
-                (ground_detection_system, apply_vehicle_forces, smooth_angular_velocity).chain().in_set(PhysicsSystems::Prepare),
+                (ground_detection_system, apply_vehicle_forces, smooth_angular_velocity).chain().in_set(PhysicsSystems::Prepare).run_if(in_state(GameState::Playing)),
             )
-            .add_systems(Update, capture_input)
-            .add_systems(Update, camera_input)
-            .add_systems(Update, (sync_car_state, clamp_speed, camera_follow))
+            .add_systems(Update, capture_input.run_if(in_state(GameState::Playing)))
+            .add_systems(Update, camera_input.run_if(in_state(GameState::Playing)))
+            .add_systems(Update, (sync_car_state, clamp_speed, camera_follow).run_if(in_state(GameState::Playing)))
             .add_systems(
                 Update,
                 (
@@ -70,8 +71,9 @@ impl Plugin for CarPlugin {
                     respawn_car,
                     respawn_hit_cars,
                     switch_car_model,
-                ),
-            );
+                ).run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(Update, switch_car_model_pregame.run_if(in_state(GameState::PreGame)));
     }
 }
 
@@ -760,13 +762,10 @@ pub struct CarCollider;
 fn switch_car_model(
     mut selection: ResMut<CarSelection>,
     car_query: Query<Entity, With<PlayerCar>>,
-    visual_query: Query<Entity, With<CarVisual>>,
-    collider_query: Query<Entity, With<CarCollider>>,
     children_query: Query<&Children>,
-    wheel_query: Query<Entity, Or<(With<WheelFrontLeft>, With<WheelFrontRight>, With<WheelRearLeft>, With<WheelRearRight>)>>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut blaster_selection: ResMut<crate::blaster::BlasterSelection>,
+    blaster_selection: Res<crate::blaster::BlasterSelection>,
 ) {
     if !selection.pending_change {
         return;
@@ -778,30 +777,83 @@ fn switch_car_model(
     };
 
     for child in children_query.iter_descendants(car_entity) {
-        if visual_query.get(child).is_ok() {
-            commands.entity(child).despawn();
-        }
-        if wheel_query.get(child).is_ok() {
-            commands.entity(child).despawn();
-        }
-        if collider_query.get(child).is_ok() {
-            commands.entity(child).despawn();
-        }
+        commands.entity(child).despawn();
     }
 
     commands.entity(car_entity).remove::<WheelsLabeled>();
 
     let def = &CAR_DEFS[selection.index];
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
+    let half_height = def.collider.y * 0.5;
+    let mount_y = crate::car::mount_y(def.collider.y);
+    let blaster_def = &crate::blaster::BLASTER_DEFS[blaster_selection.index];
+    let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
+
     commands.entity(car_entity).with_children(|parent| {
         parent.spawn((
             Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
-            Transform::from_translation(Vec3::new(0.0, def.collider.y * 0.5, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
             CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
             CarCollider,
         ));
         parent.spawn((SceneRoot(car_scene), CarVisual));
+        parent.spawn((
+            SceneRoot(blaster_scene),
+            Transform::from_translation(Vec3::new(0.0, mount_y, 0.0))
+                .with_scale(Vec3::splat(blaster_def.scale))
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+            crate::blaster::BlasterVisual,
+            crate::blaster::ComputePivot,
+        ));
     });
+}
 
-    blaster_selection.pending_change = true;
+fn switch_car_model_pregame(
+    mut car_selection: ResMut<CarSelection>,
+    mut blaster_selection: ResMut<crate::blaster::BlasterSelection>,
+    car_query: Query<Entity, With<PlayerCar>>,
+    children_query: Query<&Children>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    if !car_selection.pending_change && !blaster_selection.pending_change {
+        return;
+    }
+    car_selection.pending_change = false;
+    blaster_selection.pending_change = false;
+
+    let Ok(car_entity) = car_query.single() else {
+        return;
+    };
+
+    for child in children_query.iter_descendants(car_entity) {
+        commands.entity(child).despawn();
+    }
+
+    commands.entity(car_entity).remove::<WheelsLabeled>();
+
+    let def = &CAR_DEFS[car_selection.index];
+    let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
+    let half_height = def.collider.y * 0.5;
+    let mount_y = crate::car::mount_y(def.collider.y);
+    let blaster_def = &crate::blaster::BLASTER_DEFS[blaster_selection.index];
+    let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
+
+    commands.entity(car_entity).with_children(|parent| {
+        parent.spawn((
+            Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
+            Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
+            CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
+            CarCollider,
+        ));
+        parent.spawn((SceneRoot(car_scene), CarVisual));
+        parent.spawn((
+            SceneRoot(blaster_scene),
+            Transform::from_translation(Vec3::new(0.0, mount_y, 0.0))
+                .with_scale(Vec3::splat(blaster_def.scale))
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+            crate::blaster::BlasterVisual,
+            crate::blaster::ComputePivot,
+        ));
+    });
 }

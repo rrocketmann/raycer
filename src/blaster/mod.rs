@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use bevy::prelude::*;
 use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings, RayCastVisibility};
 use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, RespawnCar};
+use crate::GameState;
 
 pub struct BlasterDef {
     pub name: &'static str,
@@ -30,23 +31,17 @@ pub const BLASTER_DEFS: &[BlasterDef] = &[
     BlasterDef { name: "Blaster R", path: "models/blaster-r.glb", scale: 2.0 },
 ];
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct BlasterSelection {
     pub index: usize,
     pub pending_change: bool,
-}
-
-impl Default for BlasterSelection {
-    fn default() -> Self {
-        Self { index: 0, pending_change: true }
-    }
 }
 
 #[derive(Component)]
 pub struct BlasterVisual;
 
 #[derive(Component)]
-struct ComputePivot;
+pub struct ComputePivot;
 
 #[derive(Component)]
 pub struct Bullet {
@@ -83,7 +78,7 @@ impl Plugin for BlasterPlugin {
                 compute_pivot,
                 aim_blaster,
             ).chain())
-            .add_systems(Update, (shoot_bullet, move_bullets).chain());
+            .add_systems(Update, (shoot_bullet, move_bullets).chain().run_if(in_state(GameState::Playing)));
     }
 }
 

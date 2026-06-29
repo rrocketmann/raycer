@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::asset::LoadedUntypedAsset;
+use crate::GameState;
 
 #[derive(Component)]
 struct LoadingScreen;
@@ -48,6 +49,7 @@ fn finish_loading(
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     q: Query<Entity, With<LoadingScreen>>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
     let Some(h) = handles else { return };
     for handle in &h.handles {
@@ -60,6 +62,7 @@ fn finish_loading(
         commands.entity(entity).despawn();
     }
     commands.remove_resource::<LoadingOverlay>();
+    next_state.set(GameState::PreGame);
 }
 
 pub struct SplashPlugin;
