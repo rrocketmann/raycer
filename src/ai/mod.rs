@@ -458,7 +458,7 @@ fn ai_shoot(
         }
 
         let mut direction = aim_point - blaster_pos;
-        direction.y = 0.0;
+        if blaster_pos.y < 5.0 && direction.y < 0.0 { direction.y = 0.0; }
         let direction = direction.normalize_or(Vec3::Z);
         let spawn_pos = blaster_pos + direction * 1.0;
 
