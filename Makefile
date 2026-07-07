@@ -1,16 +1,17 @@
-.PHONY: run run-dev serve build clean
+.PHONY: run dev serve build clean deploy
 
 run:
 	cargo run
 
-run-dev:
+dev:
 	cargo run --features dev
 
 serve:
 	trunk serve --features web
 
 build:
-	trunk build --release --public-url /raycer/ --features web
+	trunk build --release --public-url /raycer/ --features web && cp _headers dist/
 
 clean:
 	cargo clean
+	rm -rf dist/

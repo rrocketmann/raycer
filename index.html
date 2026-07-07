@@ -1,36 +1,205 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>raycer</title>
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
+            width: 100%; height: 100%;
             overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            background: #050505;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            color: #fff;
+            -webkit-font-smoothing: antialiased;
         }
-        @media (prefers-color-scheme: dark) {
-            html, body { background: #000; }
-        }
-        @media (prefers-color-scheme: light) {
-            html, body { background: #fff; }
-        }
-        #raycer {
-            width: 100%;
-            height: 100%;
+        canvas#raycer {
+            width: 100%; height: 100%;
             display: block;
+        }
+
+        /* --- Loading Screen --- */
+        #loading-screen {
+            position: fixed; inset: 0; z-index: 100;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            background: #050505;
+            transition: opacity 0.6s ease;
+        }
+        #loading-screen.done {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #loading-screen .title {
+            font-size: clamp(2rem, 6vw, 4rem);
+            font-weight: 200;
+            letter-spacing: 0.6em;
+            text-indent: 0.6em;
+            color: #eee;
+            margin-bottom: 3rem;
+            user-select: none;
+        }
+
+        .progress-track {
+            width: 200px; height: 2px;
+            background: #222;
+            border-radius: 1px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            width: 0%; height: 100%;
+            background: linear-gradient(90deg, #555, #eee);
+            border-radius: 1px;
+            transition: width 0.3s ease;
+        }
+
+        #loading-screen .status {
+            margin-top: 1rem;
+            font-size: 0.8rem;
+            color: #666;
+            letter-spacing: 0.08em;
+        }
+
+        #loading-screen .hint {
+            margin-top: 3rem;
+            font-size: 0.75rem;
+            color: #333;
+            letter-spacing: 0.05em;
+        }
+
+        /* --- Error Screen --- */
+        #error-screen {
+            position: fixed; inset: 0; z-index: 200;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            background: #050505;
+            padding: 2rem; text-align: center;
+        }
+        #error-screen.hidden { display: none; }
+
+        #error-screen .icon {
+            font-size: 2.5rem; margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+        #error-screen h1 {
+            font-size: 1.5rem; font-weight: 500;
+            margin-bottom: 0.75rem;
+        }
+        #error-screen p {
+            color: #888; font-size: 0.9rem;
+            line-height: 1.6; max-width: 420px;
+        }
+        #error-screen .detail {
+            color: #555; font-size: 0.8rem;
+            margin-top: 1.5rem; max-width: 420px;
+            line-height: 1.5;
+        }
+        #error-screen .browsers {
+            margin-top: 1.5rem;
+            display: flex; gap: 1rem;
+            font-size: 0.75rem; color: #555;
+        }
+        #error-screen .browsers span {
+            padding: 0.35rem 0.75rem;
+            border: 1px solid #222;
+            border-radius: 4px;
         }
     </style>
     <link data-trunk rel="rust" data-wasm-opt="2" />
     <link data-trunk rel="copy-dir" href="assets" />
 </head>
 <body>
+    <div id="loading-screen">
+        <div class="title">RAYCER</div>
+        <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
+        <div class="status" id="loading-status">Initializing...</div>
+        <div class="hint">WebGPU Required</div>
+    </div>
+
+    <div id="error-screen" class="hidden">
+        <div class="icon">&#9888;</div>
+        <h1 id="error-title">Unable to Start</h1>
+        <p id="error-message">Checking browser support...</p>
+        <div class="detail" id="error-detail"></div>
+        <div class="browsers">
+            <span>Chrome 113+</span>
+            <span>Edge 113+</span>
+            <span>Opera 99+</span>
+        </div>
+    </div>
+
     <canvas id="raycer"></canvas>
+
+    <script>
+    (function() {
+        var loadingScreen = document.getElementById('loading-screen');
+        var errorScreen = document.getElementById('error-screen');
+        var errorTitle = document.getElementById('error-title');
+        var errorMessage = document.getElementById('error-message');
+        var errorDetail = document.getElementById('error-detail');
+        var loadingStatus = document.getElementById('loading-status');
+        var progressBar = document.getElementById('progress-bar');
+
+        function showError(title, msg, detail) {
+            errorTitle.textContent = title;
+            errorMessage.textContent = msg;
+            errorDetail.textContent = detail || '';
+            loadingScreen.classList.add('done');
+            errorScreen.classList.remove('hidden');
+        }
+
+        // --- 1. Cross-Origin Isolation check ---
+        if (typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated) {
+            showError(
+                'Cross-Origin Isolation Required',
+                'This page must be served with the correct security headers.',
+                'The server must send Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp headers.'
+            );
+            return;
+        }
+
+        // --- 2. WebGPU support check ---
+        if (typeof navigator === 'undefined' || !navigator.gpu) {
+            showError(
+                'WebGPU Not Available',
+                'Your browser or device does not support WebGPU, which is required for this game.',
+                'WebGPU is supported in Chrome 113+, Edge 113+, and Opera 99+. Firefox has limited support behind a flag, and Safari support is experimental.'
+            );
+            return;
+        }
+
+        // --- 3. WASM loading progress ---
+        var progressInterval = setInterval(function() {
+            var cur = parseFloat(progressBar.style.width) || 0;
+            if (cur < 70) {
+                progressBar.style.width = Math.min(cur + (Math.random() * 8 + 2), 70) + '%';
+            }
+        }, 400);
+
+        loadingStatus.textContent = 'Loading game engine...';
+
+        // --- 4. Listen for WASM loaded ---
+        window.addEventListener('TrunkApplicationStarted', function() {
+            clearInterval(progressInterval);
+            progressBar.style.width = '100%';
+            loadingStatus.textContent = 'Starting...';
+            setTimeout(function() {
+                loadingScreen.classList.add('done');
+            }, 400);
+        });
+
+        // --- 5. Timeout fallback ---
+        setTimeout(function() {
+            loadingStatus.textContent = 'Still loading... large game assets';
+            progressBar.style.width = '85%';
+        }, 15000);
+
+        setTimeout(function() {
+            loadingStatus.textContent = 'Downloading game content...';
+        }, 30000);
+    })();
+    </script>
 </body>
 </html>
