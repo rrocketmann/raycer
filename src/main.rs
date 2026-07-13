@@ -2,6 +2,8 @@ use bevy::prelude::*;
 use avian3d::dynamics::solver::SolverConfig;
 use avian3d::prelude::*;
 
+use crate::car::{PlayerCar, Health};
+
 mod ai;
 mod blaster;
 mod car;
@@ -14,6 +16,14 @@ enum GameState {
     Loading,
     PreGame,
     Playing,
+    Eliminated,
+}
+
+#[derive(Resource)]
+pub struct RubberBullets(pub bool);
+
+impl Default for RubberBullets {
+    fn default() -> Self { Self(false) }
 }
 
 #[derive(Resource)]
@@ -54,6 +64,17 @@ impl Default for AiEnemyCount {
     fn default() -> Self { Self(3) }
 }
 
+fn check_player_eliminated(
+    mut next_state: ResMut<NextState<GameState>>,
+    player_query: Query<&Health, With<PlayerCar>>,
+) {
+    if let Ok(health) = player_query.single() {
+        if health.0 == 0 {
+            next_state.set(GameState::Eliminated);
+        }
+    }
+}
+
 fn main() {
     let window_plugin = WindowPlugin {
         primary_window: Some(Window {
@@ -77,7 +98,9 @@ fn main() {
         .add_plugins(bevy_egui::EguiPlugin::default())
         .init_state::<GameState>()
         .init_resource::<AiEnemyCount>()
+        .init_resource::<RubberBullets>()
         .add_systems(Update, enter_pregame.run_if(in_state(GameState::Loading)))
+        .add_systems(Update, check_player_eliminated.run_if(in_state(GameState::Playing)))
         .add_plugins((ai::AiPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
 
     #[cfg(feature = "dev")]

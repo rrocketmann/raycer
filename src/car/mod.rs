@@ -4,6 +4,12 @@ use bevy::input::mouse::{MouseWheel, MouseMotion};
 use bevy::ecs::message::MessageReader;
 use crate::GameState;
 
+#[derive(Component)]
+pub struct Health(pub u8);
+
+#[derive(Component)]
+pub struct HealthSegment(pub u8);
+
 pub struct CarDef {
     pub name: &'static str,
     pub path: &'static str,
@@ -73,7 +79,54 @@ impl Plugin for CarPlugin {
                     switch_car_model,
                 ).run_if(in_state(GameState::Playing)),
             )
-            .add_systems(Update, switch_car_model_pregame.run_if(in_state(GameState::PreGame)));
+            .add_systems(Update, switch_car_model_pregame.run_if(in_state(GameState::PreGame)))
+            .add_systems(Update, update_health_indicators.run_if(in_state(GameState::Playing)));
+    }
+}
+
+pub fn spawn_health_indicators(
+    car_entity: Entity,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    collider_y: f32,
+) {
+    let square_size = 0.25;
+    let gap = 0.35;
+    let start_x = -gap;
+    let y_offset = collider_y + 2.5;
+    let mesh = meshes.add(Rectangle::new(square_size, square_size));
+    let material = materials.add(Color::WHITE);
+
+    for i in 0..3 {
+        let x = start_x + i as f32 * gap;
+        commands.entity(car_entity).with_children(|parent| {
+            parent.spawn((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_xyz(x, y_offset, 0.0),
+                HealthSegment(i),
+            ));
+        });
+    }
+}
+
+fn update_health_indicators(
+    mut commands: Commands,
+    health_query: Query<(Entity, &Health)>,
+    segment_query: Query<&HealthSegment>,
+    children_query: Query<&Children>,
+) {
+    for (car_entity, health) in health_query.iter() {
+        let hp = health.0;
+        if hp >= 3 { continue; }
+        for child in children_query.iter_descendants(car_entity) {
+            if let Ok(segment) = segment_query.get(child) {
+                if segment.0 >= hp {
+                    commands.entity(child).despawn();
+                }
+            }
+        }
     }
 }
 

@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 use bevy::prelude::*;
 use avian3d::prelude::{Collider, SpatialQuery, ShapeCastConfig, SpatialQueryFilter};
-use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, RespawnCar};
+use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health};
 use crate::GameState;
+use crate::RubberBullets;
 
 pub struct BlasterDef {
     pub name: &'static str,
@@ -211,8 +212,7 @@ fn shoot_bullet(
     let Some(aim_point) = aim_info.aim_point else { return };
 
     let blaster_pos = blaster_global.translation();
-    let aim_clamped = Vec3::new(aim_point.x, aim_point.y.max(0.0), aim_point.z);
-    let direction = (aim_clamped - blaster_pos).normalize_or(*blaster_global.forward());
+    let direction = (aim_point - blaster_pos).normalize_or(*blaster_global.forward());
     let spawn_pos = blaster_pos + direction * 1.0;
 
     let mut exclude = HashSet::new();
@@ -245,6 +245,8 @@ fn move_bullets(
     parent_query: Query<&ChildOf>,
     player_query: Query<(), With<PlayerCar>>,
     ai_query: Query<(), With<AiCar>>,
+    mut health_query: Query<&mut Health>,
+    rubber_bullets: Res<RubberBullets>,
     mut commands: Commands,
 ) {
     for (entity, mut transform, mut bullet, exclude_ray) in bullet_query.iter_mut() {
@@ -274,12 +276,21 @@ fn move_bullets(
 
         if let Some(hit) = spatial_query.cast_shape(&shape, prev_pos, Quat::IDENTITY, direction, &config, &filter) {
             if let Some(car_entity) = find_car_ancestor(hit.entity, &parent_query, &player_query, &ai_query) {
-                let spawn_pos = if player_query.get(car_entity).is_ok() {
-                    Vec3::new(0.0, 5.0, 0.0)
-                } else {
-                    Vec3::new(10.0, 5.0, 10.0)
-                };
-                commands.entity(car_entity).insert(RespawnCar { spawn_pos });
+                if let Ok(mut health) = health_query.get_mut(car_entity) {
+                    health.0 = health.0.saturating_sub(1);
+                }
+                transform.translation = prev_pos + direction * hit.distance;
+                commands.entity(entity).despawn();
+                continue;
+            }
+            if rubber_bullets.0 {
+                let reflected = direction.as_vec3().reflect(hit.normal1).normalize_or_zero();
+                if let Ok(dir) = Dir3::new(reflected) {
+                    bullet.velocity = dir * BULLET_SPEED;
+                }
+                let safe_dist = (hit.distance - BULLET_RADIUS).max(0.0);
+                transform.translation = prev_pos + direction * safe_dist;
+                continue;
             }
             transform.translation = prev_pos + direction * hit.distance;
             commands.entity(entity).despawn();

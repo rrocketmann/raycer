@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use avian3d::prelude::*;
 use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, ShadowFilteringMethod};
-use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData, CarSelection};
+use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData, CarSelection, Health, spawn_health_indicators};
 use crate::blaster::{BlasterSelection, BLASTER_DEFS};
 use crate::GameState;
 
@@ -26,6 +26,8 @@ fn spawn_world(
     asset_server: Res<AssetServer>,
     car_selection: Res<CarSelection>,
     blaster_selection: Res<BlasterSelection>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let def = &CAR_DEFS[car_selection.index];
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
@@ -41,7 +43,8 @@ fn spawn_world(
         Rotation::default(),
         LinearVelocity::ZERO,
         AngularVelocity::ZERO,
-    )).id();
+    )).insert(Health(3)).id();
+    spawn_health_indicators(car_root, &mut commands, &mut meshes, &mut materials, def.collider.y);
     let half_height = def.collider.y * 0.5;
     commands.entity(car_root).insert((
         LinearDamping(0.5),

@@ -6,6 +6,7 @@ use crate::car::Telemetry;
 use crate::blaster::{BlasterSelection, BLASTER_DEFS};
 use crate::GameState;
 use crate::AiEnemyCount;
+use crate::RubberBullets;
 
 pub struct UiPlugin;
 
@@ -25,6 +26,7 @@ fn egui_panel(
     game_state: Res<State<GameState>>,
     mut next_state: ResMut<NextState<GameState>>,
     mut ai_enemy_count: ResMut<AiEnemyCount>,
+    mut rubber_bullets: ResMut<RubberBullets>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -34,10 +36,13 @@ fn egui_panel(
     match game_state.get() {
         GameState::Loading => {}
         GameState::PreGame => {
-            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut next_state);
+            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut rubber_bullets, &mut next_state);
         }
         GameState::Playing => {
             playing_ui(ctx, &telemetry, &mut car_selection, &mut blaster_selection, &keys);
+        }
+        GameState::Eliminated => {
+            death_ui(ctx, &mut next_state);
         }
     }
 }
@@ -55,6 +60,7 @@ fn pre_game_ui(
     car_selection: &mut CarSelection,
     blaster_selection: &mut BlasterSelection,
     ai_enemy_count: &mut AiEnemyCount,
+    rubber_bullets: &mut RubberBullets,
     next_state: &mut NextState<GameState>,
 ) {
     let panel_w = 260.0;
@@ -133,6 +139,15 @@ fn pre_game_ui(
                                 ai_enemy_count.0 = (ai_enemy_count.0 + 1).min(10);
                             }
                         });
+
+                        ui.add_space(12.0);
+
+                        // Rubber Bullets toggle
+                        ui.horizontal(|ui| {
+                            ui.add_space((panel_w - 160.0) / 2.0);
+                            let label = egui::RichText::new("Rubber Bullets").size(12.0).color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 200));
+                            ui.checkbox(&mut rubber_bullets.0, label);
+                        });
                     },
                 );
 
@@ -147,6 +162,28 @@ fn pre_game_ui(
                 );
                 if start_resp.clicked() {
                     next_state.set(GameState::Playing);
+                }
+            });
+        });
+}
+
+fn death_ui(
+    ctx: &egui::Context,
+    next_state: &mut NextState<GameState>,
+) {
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE.fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200)))
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(200.0);
+                ui.label(egui::RichText::new("ELIMINATED").size(48.0).color(egui::Color32::from_rgba_unmultiplied(255, 50, 50, 255)).strong());
+                ui.add_space(20.0);
+                ui.label(egui::RichText::new("You have been eliminated").size(16.0).color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 200)));
+                ui.add_space(40.0);
+                if ui.add_sized([200.0, 42.0], egui::Button::new(
+                    egui::RichText::new("BACK TO MENU").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+                ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180))).clicked() {
+                    next_state.set(GameState::PreGame);
                 }
             });
         });
