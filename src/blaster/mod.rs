@@ -211,9 +211,7 @@ fn shoot_bullet(
     let Some(aim_point) = aim_info.aim_point else { return };
 
     let blaster_pos = blaster_global.translation();
-    let mut direction = aim_point - blaster_pos;
-    if blaster_pos.y < 5.0 && direction.y < 0.0 { direction.y = 0.0; }
-    let direction = direction.normalize_or(*blaster_global.forward());
+    let direction = (aim_point - blaster_pos).normalize_or(*blaster_global.forward());
     let spawn_pos = blaster_pos + direction * 1.0;
 
     let mut exclude = HashSet::new();
