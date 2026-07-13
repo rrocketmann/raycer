@@ -150,17 +150,7 @@
             errorScreen.classList.remove('hidden');
         }
 
-        // --- 1. Cross-Origin Isolation check ---
-        if (typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated) {
-            showError(
-                'Cross-Origin Isolation Required',
-                'This page must be served with the correct security headers.',
-                'The server must send Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp headers.'
-            );
-            return;
-        }
-
-        // --- 2. WebGPU support check ---
+        // --- 1. WebGPU support check ---
         if (typeof navigator === 'undefined' || !navigator.gpu) {
             showError(
                 'WebGPU Not Available',
