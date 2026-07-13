@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use bevy::prelude::*;
-use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings, RayCastVisibility};
+use avian3d::prelude::{Collider, SpatialQuery, ShapeCastConfig, SpatialQueryFilter};
 use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, RespawnCar};
 use crate::GameState;
 
@@ -242,7 +242,7 @@ fn shoot_bullet(
 fn move_bullets(
     mut bullet_query: Query<(Entity, &mut Transform, &mut Bullet, &ExcludeMeshRayCast)>,
     time: Res<Time>,
-    mut mesh_ray_cast: MeshRayCast,
+    spatial_query: SpatialQuery,
     parent_query: Query<&ChildOf>,
     player_query: Query<(), With<PlayerCar>>,
     ai_query: Query<(), With<AiCar>>,
@@ -257,37 +257,37 @@ fn move_bullets(
 
         let prev_pos = transform.translation;
         let delta = bullet.velocity * time.delta_secs();
-        let next_pos = prev_pos + delta;
+        let distance = delta.length();
 
-        let Ok(dir) = Dir3::new(delta) else {
+        if distance < 0.001 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        let Ok(direction) = Dir3::new(delta) else {
             commands.entity(entity).despawn();
             continue;
         };
-        let ray = Ray3d::new(prev_pos, dir);
-        let exclude_set = &exclude_ray.0;
-        let filter = |e: Entity| !exclude_set.contains(&e);
-        let settings = MeshRayCastSettings::default()
-            .with_visibility(RayCastVisibility::Any)
-            .with_filter(&filter)
-            .with_early_exit_test(&|_| true);
 
-        if let Some((hit_entity, hit)) = mesh_ray_cast.cast_ray(ray, &settings).first() {
-            if hit.distance <= delta.length() {
-                if let Some(car_entity) = find_car_ancestor(*hit_entity, &parent_query, &player_query, &ai_query) {
-                    let spawn_pos = if player_query.get(car_entity).is_ok() {
-                        Vec3::new(0.0, 5.0, 0.0)
-                    } else {
-                        Vec3::new(10.0, 5.0, 10.0)
-                    };
-                    commands.entity(car_entity).insert(RespawnCar { spawn_pos });
-                }
-                transform.translation = hit.point;
-                commands.entity(entity).despawn();
-                continue;
+        let shape = Collider::sphere(BULLET_RADIUS);
+        let config = ShapeCastConfig::from_max_distance(distance);
+        let filter = SpatialQueryFilter::from_excluded_entities(exclude_ray.0.iter().copied());
+
+        if let Some(hit) = spatial_query.cast_shape(&shape, prev_pos, Quat::IDENTITY, direction, &config, &filter) {
+            if let Some(car_entity) = find_car_ancestor(hit.entity, &parent_query, &player_query, &ai_query) {
+                let spawn_pos = if player_query.get(car_entity).is_ok() {
+                    Vec3::new(0.0, 5.0, 0.0)
+                } else {
+                    Vec3::new(10.0, 5.0, 10.0)
+                };
+                commands.entity(car_entity).insert(RespawnCar { spawn_pos });
             }
+            transform.translation = prev_pos + direction * hit.distance;
+            commands.entity(entity).despawn();
+            continue;
         }
 
-        transform.translation = next_pos;
+        transform.translation = prev_pos + delta;
     }
 }
 

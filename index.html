@@ -134,6 +134,15 @@
 
     <script>
     (function() {
+        // --- Canvas resize for WebGPU ---
+        var canvas = document.getElementById('raycer');
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
         var loadingScreen = document.getElementById('loading-screen');
         var errorScreen = document.getElementById('error-screen');
         var errorTitle = document.getElementById('error-title');

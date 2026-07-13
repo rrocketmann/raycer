@@ -16,8 +16,35 @@ enum GameState {
     Playing,
 }
 
-fn enter_pregame(mut next_state: ResMut<NextState<GameState>>) {
-    next_state.set(GameState::PreGame);
+#[derive(Resource)]
+struct LoadingAssets {
+    handles: Vec<Handle<Scene>>,
+}
+
+fn enter_pregame(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut next_state: ResMut<NextState<GameState>>,
+    loading: Option<Res<LoadingAssets>>,
+) {
+    let Some(loading) = loading else {
+        let paths = [
+            car::CAR_DEFS[0].path,
+            blaster::BLASTER_DEFS[0].path,
+            "Map.glb",
+        ];
+        let handles: Vec<Handle<Scene>> = paths
+            .iter()
+            .map(|p| asset_server.load(GltfAssetLabel::Scene(0).from_asset(*p)))
+            .collect();
+        commands.insert_resource(LoadingAssets { handles });
+        return;
+    };
+
+    if loading.handles.iter().all(|h| asset_server.is_loaded_with_dependencies(h)) {
+        next_state.set(GameState::PreGame);
+        commands.remove_resource::<LoadingAssets>();
+    }
 }
 
 #[derive(Resource)]
