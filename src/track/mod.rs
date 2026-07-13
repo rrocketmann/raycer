@@ -87,6 +87,13 @@ fn spawn_world(
     ));
 
     commands.spawn((
+        Collider::cuboid(5000.0, 0.5, 5000.0),
+        RigidBody::Static,
+        Transform::from_xyz(0.0, -0.5, 0.0),
+        WorldMarker,
+    ));
+
+    commands.spawn((
         DirectionalLight {
             illuminance: 10000.0,
             shadows_enabled: true,

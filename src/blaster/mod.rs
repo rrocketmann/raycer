@@ -211,7 +211,8 @@ fn shoot_bullet(
     let Some(aim_point) = aim_info.aim_point else { return };
 
     let blaster_pos = blaster_global.translation();
-    let direction = (aim_point - blaster_pos).normalize_or(*blaster_global.forward());
+    let aim_clamped = Vec3::new(aim_point.x, aim_point.y.max(0.0), aim_point.z);
+    let direction = (aim_clamped - blaster_pos).normalize_or(*blaster_global.forward());
     let spawn_pos = blaster_pos + direction * 1.0;
 
     let mut exclude = HashSet::new();
