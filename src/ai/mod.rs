@@ -40,7 +40,7 @@ impl Plugin for AiPlugin {
             .add_systems(OnExit(GameState::PreGame), cleanup_ai_cars)
             .add_systems(OnEnter(GameState::Playing), spawn_ai_cars)
             .add_systems(OnExit(GameState::Playing), cleanup_ai_cars)
-            .add_systems(OnEnter(GameState::Eliminated), cleanup_ai_cars)
+            .add_systems(OnExit(GameState::Eliminated), cleanup_ai_cars)
             .add_systems(Update, sync_ai_count.run_if(in_state(GameState::PreGame)))
             .add_systems(Update, (
                 ai_compute_pivot,

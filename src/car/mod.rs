@@ -84,7 +84,7 @@ impl Plugin for CarPlugin {
                 ).run_if(in_state(GameState::Playing)),
             )
             .add_systems(Update, switch_car_model_pregame.run_if(in_state(GameState::PreGame)))
-            .add_systems(Update, (update_health_indicators, billboard_health).run_if(in_state(GameState::Playing)))
+            .add_systems(Update, update_health_indicators.run_if(in_state(GameState::Playing)))
             .add_systems(Update, (update_explosions, move_explosion_particles));
     }
 }
@@ -103,7 +103,7 @@ pub fn spawn_health_indicators(
     let total_width = (count as f32 - 1.0) * gap;
     let start_x = -total_width * 0.5;
     let y_offset = collider_y + 2.5;
-    let mesh = meshes.add(Rectangle::new(square_size, square_size));
+    let mesh = meshes.add(Cuboid::new(square_size, square_size, square_size * 2.0));
     let material = materials.add(Color::srgb(0.45, 0.45, 0.45));
 
     for i in 0..count {
@@ -139,32 +139,43 @@ fn update_health_indicators(
     }
 }
 
-fn billboard_health(
-    camera_query: Query<&GlobalTransform, With<CarCamera>>,
-    mut segment_query: Query<(&ChildOf, &mut Transform), With<HealthSegment>>,
-    parent_global_query: Query<&GlobalTransform>,
-) {
-    let Ok(cam_global) = camera_query.single() else { return };
-    let cam_pos = cam_global.translation();
-
-    for (child_of, mut transform) in segment_query.iter_mut() {
-        let parent_entity = child_of.0;
-        let Ok(parent_global) = parent_global_query.get(parent_entity) else { continue };
-        let world_pos = parent_global.transform_point(transform.translation);
-        let dir_to_cam = (cam_pos - world_pos).normalize();
-        let world_rot = Quat::from_rotation_arc(Vec3::Z, dir_to_cam);
-        let parent_rot = parent_global.rotation();
-        transform.rotation = parent_rot.inverse() * world_rot;
-    }
-}
-
 #[derive(Component)]
 pub struct ExplosionTimer(pub Timer);
 
 #[derive(Component)]
-struct ExplosionParticle {
-    velocity: Vec3,
-    lifetime: Timer,
+pub struct ExplosionParticle {
+    pub velocity: Vec3,
+    pub lifetime: Timer,
+}
+
+pub fn spawn_impact_effect(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    position: Vec3,
+) {
+    let mut rng = rand::rng();
+    for _ in 0..5 {
+        let dir = Vec3::new(
+            rng.random_range(-1.0..1.0),
+            rng.random_range(0.0..1.0),
+            rng.random_range(-1.0..1.0),
+        ).normalize_or(Vec3::Y);
+        let speed = rng.random_range(5.0..20.0);
+        commands.spawn((
+            Mesh3d(meshes.add(Sphere::new(0.2).mesh().ico(1).unwrap())),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Srgba::hex("ff8800").unwrap().into(),
+                emissive: LinearRgba::new(4.0, 2.0, 0.0, 1.0),
+                ..default()
+            })),
+            Transform::from_translation(position),
+            ExplosionParticle {
+                velocity: dir * speed,
+                lifetime: Timer::from_seconds(rng.random_range(0.2..0.5), TimerMode::Once),
+            },
+        ));
+    }
 }
 
 fn move_explosion_particles(

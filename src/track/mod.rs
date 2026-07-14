@@ -20,7 +20,7 @@ impl Plugin for TrackPlugin {
             .add_systems(OnExit(GameState::PreGame), cleanup_world)
             .add_systems(OnEnter(GameState::Playing), spawn_world)
             .add_systems(OnExit(GameState::Playing), cleanup_world)
-            .add_systems(OnEnter(GameState::Eliminated), cleanup_world);
+            .add_systems(OnExit(GameState::Eliminated), cleanup_world);
     }
 }
 
@@ -90,13 +90,6 @@ fn spawn_world(
             ColliderConstructor::TrimeshFromMeshWithConfig(TrimeshFlags::FIX_INTERNAL_EDGES),
         ),
         MapRoot,
-        WorldMarker,
-    ));
-
-    commands.spawn((
-        Collider::cuboid(5000.0, 0.5, 5000.0),
-        RigidBody::Static,
-        Transform::from_xyz(0.0, -0.5, 0.0),
         WorldMarker,
     ));
 

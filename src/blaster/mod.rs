@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use bevy::prelude::*;
 use avian3d::prelude::{Collider, SpatialQuery, ShapeCastConfig, SpatialQueryFilter};
-use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health, SKY_BOUNDARY};
+use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health, SKY_BOUNDARY, spawn_impact_effect};
 use crate::GameState;
 use crate::RubberBullets;
 
@@ -248,6 +248,8 @@ fn move_bullets(
     mut health_query: Query<&mut Health>,
     rubber_bullets: Res<RubberBullets>,
     mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (entity, mut transform, mut bullet, exclude_ray) in bullet_query.iter_mut() {
         bullet.lifetime.tick(time.delta());
@@ -287,6 +289,8 @@ fn move_bullets(
                 commands.entity(entity).despawn();
                 continue;
             }
+            let hit_pos = prev_pos + direction * hit.distance;
+            spawn_impact_effect(&mut commands, &mut meshes, &mut materials, hit_pos);
             if rubber_bullets.0 {
                 let reflected = direction.as_vec3().reflect(hit.normal1).normalize_or_zero();
                 if let Ok(dir) = Dir3::new(reflected) {
@@ -296,7 +300,7 @@ fn move_bullets(
                 transform.translation = prev_pos + direction * safe_dist;
                 continue;
             }
-            transform.translation = prev_pos + direction * hit.distance;
+            transform.translation = hit_pos;
             commands.entity(entity).despawn();
             continue;
         }
