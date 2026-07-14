@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_egui::{egui, EguiContexts};
 
 use crate::car::{CarSelection, CarState, CAR_DEFS};
 use crate::car::Telemetry;
@@ -14,7 +14,7 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, egui_panel);
+        app.add_systems(Update, egui_panel);
     }
 }
 

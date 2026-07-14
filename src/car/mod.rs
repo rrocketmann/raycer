@@ -103,7 +103,7 @@ pub fn spawn_health_indicators(
     let total_width = (count as f32 - 1.0) * gap;
     let start_x = -total_width * 0.5;
     let y_offset = collider_y + 2.5;
-    let mesh = meshes.add(Cuboid::new(square_size, square_size, square_size * 2.0));
+    let mesh = meshes.add(Cuboid::new(square_size, square_size, square_size));
     let material = materials.add(Color::srgb(0.45, 0.45, 0.45));
 
     for i in 0..count {
@@ -858,26 +858,17 @@ pub struct RespawnCar {
 }
 
 fn respawn_car(
-    mut player_query: Query<(&mut Position, &mut Rotation, &mut LinearVelocity, &mut AngularVelocity), With<PlayerCar>>,
-    mut ai_query: Query<(&mut Position, &mut Rotation, &mut LinearVelocity, &mut AngularVelocity), (With<AiCar>, Without<PlayerCar>)>,
+    mut player_query: Query<(&mut Position, &mut Health), With<PlayerCar>>,
+    mut ai_query: Query<(&mut Position, &mut Health), (With<AiCar>, Without<PlayerCar>)>,
 ) {
-    for (mut pos, mut rot, mut lin_vel, mut ang_vel) in player_query.iter_mut() {
+    for (pos, mut health) in player_query.iter_mut() {
         if pos.0.y < -20.0 {
-            pos.0 = Vec3::new(0.0, 5.0, 0.0);
-            rot.0 = Quat::IDENTITY;
-            lin_vel.0 = Vec3::ZERO;
-            ang_vel.0 = Vec3::ZERO;
+            health.0 = 0;
         }
     }
-    let mut ai_index: u32 = 0;
-    for (mut pos, mut rot, mut lin_vel, mut ang_vel) in ai_query.iter_mut() {
+    for (pos, mut health) in ai_query.iter_mut() {
         if pos.0.y < -20.0 {
-            let angle = ai_index as f32 * 2.1;
-            pos.0 = Vec3::new(angle.cos() * 40.0, 5.0, angle.sin() * 40.0);
-            rot.0 = Quat::IDENTITY;
-            lin_vel.0 = Vec3::ZERO;
-            ang_vel.0 = Vec3::ZERO;
-            ai_index += 1;
+            health.0 = 0;
         }
     }
 }

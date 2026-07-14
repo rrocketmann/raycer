@@ -7,6 +7,9 @@ use crate::GameState;
 use crate::MaxHealthPoints;
 
 #[derive(Component)]
+struct MenuFloor;
+
+#[derive(Component)]
 struct MapRoot;
 
 #[derive(Component)]
@@ -31,8 +34,21 @@ fn spawn_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     max_hp: Res<MaxHealthPoints>,
+    state: Res<State<GameState>>,
 ) {
     let def = &CAR_DEFS[car_selection.index];
+
+    if state.get() == &GameState::PreGame {
+        let floor_size = def.collider.x.max(def.collider.z) * 2.0;
+        commands.spawn((
+            Collider::cuboid(floor_size, 0.1, floor_size),
+            RigidBody::Static,
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            WorldMarker,
+            MenuFloor,
+        ));
+    }
+
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
     let blaster_def = &BLASTER_DEFS[blaster_selection.index];
     let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
