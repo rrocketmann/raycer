@@ -78,7 +78,7 @@ impl Plugin for BlasterPlugin {
                 switch_blaster,
                 compute_pivot,
                 aim_blaster,
-            ).chain())
+            ).chain().run_if(in_state(GameState::Playing)))
             .add_systems(Update, (shoot_bullet, move_bullets).chain().run_if(in_state(GameState::Playing)));
     }
 }

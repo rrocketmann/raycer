@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use avian3d::dynamics::solver::SolverConfig;
 use avian3d::prelude::*;
 
-use crate::car::{PlayerCar, Health, AiCar, ExplosionTimer};
+use crate::car::{PlayerCar, Health, ExplosionTimer};
 use crate::ui::UiAction;
 
 mod ai;
@@ -12,12 +12,11 @@ mod track;
 mod ui;
 
 #[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
-enum GameState {
+pub enum GameState {
     #[default]
     Loading,
     PreGame,
     Playing,
-    Eliminated,
 }
 
 #[derive(Resource)]
@@ -35,7 +34,7 @@ impl Default for MaxHealthPoints {
 }
 
 #[derive(Resource, Default)]
-pub struct GameOutcome(pub bool);
+pub struct PendingState(pub Option<GameState>);
 
 #[derive(Resource)]
 struct LoadingAssets {
@@ -75,42 +74,40 @@ impl Default for AiEnemyCount {
     fn default() -> Self { Self(3) }
 }
 
-fn handle_ui_actions(
-    mut action: ResMut<UiAction>,
+fn apply_pending_state(
+    mut pending: ResMut<PendingState>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    match action.0 {
-        1 => next_state.set(GameState::Playing),
-        2 => next_state.set(GameState::PreGame),
-        _ => {}
+    if let Some(state) = pending.0.take() {
+        next_state.set(state);
+    }
+}
+
+fn handle_ui_actions(
+    mut action: ResMut<UiAction>,
+    mut pending: ResMut<PendingState>,
+) {
+    if action.0 == 1 {
+        pending.0 = Some(GameState::Playing);
     }
     action.0 = 0;
 }
 
 fn check_game_state(
     mut commands: Commands,
-    mut next_state: ResMut<NextState<GameState>>,
-    mut outcome: ResMut<GameOutcome>,
+    mut pending: ResMut<PendingState>,
     player_query: Query<(Entity, &Health), With<PlayerCar>>,
-    ai_query: Query<(), With<AiCar>>,
     exploding_query: Query<&ExplosionTimer>,
 ) {
     for (entity, health) in player_query.iter() {
         if health.0 == 0 && exploding_query.get(entity).is_err() {
-            outcome.0 = false;
             commands.entity(entity).insert((
-                ExplosionTimer(Timer::from_seconds(0.8, TimerMode::Once)),
+                ExplosionTimer(Timer::from_seconds(0.5, TimerMode::Once)),
                 LinearVelocity::ZERO,
                 AngularVelocity::ZERO,
             ));
-            next_state.set(GameState::Eliminated);
+            pending.0 = Some(GameState::PreGame);
             return;
-        }
-    }
-    if let Ok((_, player_health)) = player_query.single() {
-        if player_health.0 > 0 && ai_query.iter().count() == 0 {
-            outcome.0 = true;
-            next_state.set(GameState::Eliminated);
         }
     }
 }
@@ -140,11 +137,12 @@ fn main() {
         .init_resource::<AiEnemyCount>()
         .init_resource::<RubberBullets>()
         .init_resource::<MaxHealthPoints>()
-        .init_resource::<GameOutcome>()
         .init_resource::<UiAction>()
+        .init_resource::<PendingState>()
         .add_systems(Update, enter_pregame.run_if(in_state(GameState::Loading)))
         .add_systems(Update, check_game_state.run_if(in_state(GameState::Playing)))
         .add_systems(Update, handle_ui_actions)
+        .add_systems(Update, apply_pending_state)
         .add_plugins((ai::AiPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
 
     #[cfg(feature = "dev")]
