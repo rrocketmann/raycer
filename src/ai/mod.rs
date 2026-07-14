@@ -468,9 +468,9 @@ fn ai_shoot(
         let distance = (target_pos - ai_global.translation()).length();
         let travel_time = distance / BULLET_SPEED;
         let lead = velocities.get(target_entity)
-            .map(|v| v.0 * travel_time * 0.7)
+            .map(|v| v.0 * travel_time * 0.9)
             .unwrap_or(Vec3::ZERO);
-        let aim_point = target_pos + lead + Vec3::new(rng.random_range(-3.0..3.0), rng.random_range(-1.0..2.0), rng.random_range(-3.0..3.0));
+        let aim_point = target_pos + lead + Vec3::new(rng.random_range(-0.5..0.5), rng.random_range(-0.3..0.3), rng.random_range(-0.5..0.5));
 
         let Ok(children) = children_query.get(ai_entity) else { continue };
         let mut blaster_pos = ai_global.translation();
