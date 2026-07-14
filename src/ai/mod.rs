@@ -39,13 +39,15 @@ impl Plugin for AiPlugin {
             .add_systems(OnExit(GameState::PreGame), cleanup_ai_cars)
             .add_systems(OnEnter(GameState::Playing), spawn_ai_cars)
             .add_systems(OnExit(GameState::Playing), cleanup_ai_cars)
+            .add_systems(OnEnter(GameState::Eliminated), cleanup_ai_cars)
             .add_systems(Update, sync_ai_count.run_if(in_state(GameState::PreGame)))
             .add_systems(Update, (
                 ai_compute_pivot,
                 ai_aim_blaster,
             ).chain())
             .add_systems(Update, ai_drive.run_if(in_state(GameState::Playing)))
-            .add_systems(Update, ai_shoot.run_if(in_state(GameState::Playing)));
+            .add_systems(Update, ai_shoot.run_if(in_state(GameState::Playing)))
+            .add_systems(Update, despawn_dead_cars.run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -291,6 +293,7 @@ fn ai_aim_blaster(
     ai_query: Query<(Entity, &GlobalTransform, &AiConfig), With<AiCar>>,
     player_entity_res: Query<Entity, With<PlayerCar>>,
     all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
+    velocities: Query<&LinearVelocity>,
     children_query: Query<&Children>,
     mut blaster_query: Query<(&AiPivotCache, &mut Transform), (With<AiBlasterVisual>, Without<AiCar>)>,
 ) {
@@ -298,6 +301,7 @@ fn ai_aim_blaster(
 
     for (ai_entity, ai_global, ai_config) in ai_query.iter() {
         let mut best_dist = f32::MAX;
+        let mut target_entity = ai_entity;
         let mut target_pos = ai_global.translation();
         for (other_entity, other_global) in all_cars.iter() {
             if other_entity == ai_entity { continue; }
@@ -305,6 +309,7 @@ fn ai_aim_blaster(
             if player_entity == Some(other_entity) { d *= 0.85; }
             if d < best_dist {
                 best_dist = d;
+                target_entity = other_entity;
                 target_pos = other_global.translation();
             }
         }
@@ -319,7 +324,12 @@ fn ai_aim_blaster(
 
                 let ai_pos = ai_global.translation();
                 let ai_rot = ai_global.rotation();
-                let aim_point = target_pos + Vec3::new(0.0, 1.0, 0.0);
+                let distance = (target_pos - ai_pos).length();
+                let travel_time = distance / BULLET_SPEED;
+                let lead = velocities.get(target_entity)
+                    .map(|v| v.0 * travel_time * 0.7)
+                    .unwrap_or(Vec3::ZERO);
+                let aim_point = target_pos + lead + Vec3::new(0.0, 1.0, 0.0);
 
                 let blaster_world_mount = ai_pos + ai_rot * mount;
                 let local_aim = ai_rot.inverse() * (aim_point - blaster_world_mount);
@@ -420,6 +430,7 @@ fn ai_shoot(
     mut ai_query: Query<(Entity, &GlobalTransform, &AiConfig, &mut AiShootTimer), With<AiCar>>,
     player_entity_res: Query<Entity, With<PlayerCar>>,
     all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
+    velocities: Query<&LinearVelocity>,
     blaster_global_query: Query<&GlobalTransform, With<AiBlasterVisual>>,
     children_query: Query<&Children>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -441,6 +452,7 @@ fn ai_shoot(
         shoot_timer.timer.reset();
 
         let mut best_dist = f32::MAX;
+        let mut target_entity = ai_entity;
         let mut target_pos = ai_global.translation();
         for (other_entity, other_pos) in &car_data {
             if *other_entity == ai_entity { continue; }
@@ -448,11 +460,17 @@ fn ai_shoot(
             if player_entity == Some(*other_entity) { d *= 0.85; }
             if d < best_dist {
                 best_dist = d;
+                target_entity = *other_entity;
                 target_pos = *other_pos;
             }
         }
 
-        let aim_point = target_pos + Vec3::new(rng.random_range(-3.0..3.0), rng.random_range(-1.0..2.0), rng.random_range(-3.0..3.0));
+        let distance = (target_pos - ai_global.translation()).length();
+        let travel_time = distance / BULLET_SPEED;
+        let lead = velocities.get(target_entity)
+            .map(|v| v.0 * travel_time * 0.7)
+            .unwrap_or(Vec3::ZERO);
+        let aim_point = target_pos + lead + Vec3::new(rng.random_range(-3.0..3.0), rng.random_range(-1.0..2.0), rng.random_range(-3.0..3.0));
 
         let Ok(children) = children_query.get(ai_entity) else { continue };
         let mut blaster_pos = ai_global.translation();
@@ -486,5 +504,16 @@ fn ai_shoot(
             },
             ExcludeMeshRayCast(exclude),
         ));
+    }
+}
+
+fn despawn_dead_cars(
+    mut commands: Commands,
+    ai_query: Query<(Entity, &Health), With<AiCar>>,
+) {
+    for (entity, health) in ai_query.iter() {
+        if health.0 == 0 {
+            commands.entity(entity).despawn();
+        }
     }
 }

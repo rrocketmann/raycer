@@ -80,7 +80,7 @@ impl Plugin for CarPlugin {
                 ).run_if(in_state(GameState::Playing)),
             )
             .add_systems(Update, switch_car_model_pregame.run_if(in_state(GameState::PreGame)))
-            .add_systems(Update, update_health_indicators.run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (update_health_indicators, billboard_health).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -96,7 +96,7 @@ pub fn spawn_health_indicators(
     let start_x = -gap;
     let y_offset = collider_y + 2.5;
     let mesh = meshes.add(Rectangle::new(square_size, square_size));
-    let material = materials.add(Color::WHITE);
+    let material = materials.add(Color::srgb(0.45, 0.45, 0.45));
 
     for i in 0..3 {
         let x = start_x + i as f32 * gap;
@@ -127,6 +127,25 @@ fn update_health_indicators(
                 }
             }
         }
+    }
+}
+
+fn billboard_health(
+    camera_query: Query<&GlobalTransform, With<CarCamera>>,
+    mut segment_query: Query<(&ChildOf, &mut Transform), With<HealthSegment>>,
+    parent_global_query: Query<&GlobalTransform>,
+) {
+    let Ok(cam_global) = camera_query.single() else { return };
+    let cam_pos = cam_global.translation();
+
+    for (child_of, mut transform) in segment_query.iter_mut() {
+        let parent_entity = child_of.0;
+        let Ok(parent_global) = parent_global_query.get(parent_entity) else { continue };
+        let world_pos = parent_global.transform_point(transform.translation);
+        let dir_to_cam = (cam_pos - world_pos).normalize();
+        let world_rot = Quat::from_rotation_arc(Vec3::Z, dir_to_cam);
+        let parent_rot = parent_global.rotation();
+        transform.rotation = parent_rot.inverse() * world_rot;
     }
 }
 
