@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::car::{CarSelection, CarState, CAR_DEFS};
 use crate::car::Telemetry;
@@ -14,9 +14,12 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, egui_panel);
+        app.add_systems(EguiPrimaryContextPass, egui_panel);
     }
 }
+
+#[derive(Resource, Default)]
+pub struct UiAction(pub u8);
 
 fn egui_panel(
     mut contexts: EguiContexts,
@@ -26,11 +29,11 @@ fn egui_panel(
     mut blaster_selection: ResMut<BlasterSelection>,
     keys: Res<ButtonInput<KeyCode>>,
     game_state: Res<State<GameState>>,
-    mut next_state: ResMut<NextState<GameState>>,
     mut ai_enemy_count: ResMut<AiEnemyCount>,
     mut rubber_bullets: ResMut<RubberBullets>,
     mut max_hp: ResMut<MaxHealthPoints>,
     outcome: Res<GameOutcome>,
+    mut action: ResMut<UiAction>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -40,13 +43,13 @@ fn egui_panel(
     match game_state.get() {
         GameState::Loading => {}
         GameState::PreGame => {
-            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut rubber_bullets, &mut max_hp, &mut next_state);
+            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut rubber_bullets, &mut max_hp, &mut action);
         }
         GameState::Playing => {
             playing_ui(ctx, &telemetry, &mut car_selection, &mut blaster_selection, &keys);
         }
         GameState::Eliminated => {
-            death_ui(ctx, &mut next_state, &outcome);
+            death_ui(ctx, &mut action, &outcome);
         }
     }
 }
@@ -66,7 +69,7 @@ fn pre_game_ui(
     ai_enemy_count: &mut AiEnemyCount,
     rubber_bullets: &mut RubberBullets,
     max_hp: &mut MaxHealthPoints,
-    next_state: &mut NextState<GameState>,
+    action: &mut UiAction,
 ) {
     let panel_w = 260.0;
     let btn_size = 32.0;
@@ -197,7 +200,7 @@ fn pre_game_ui(
                     ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)),
                 );
                 if start_resp.clicked() {
-                    next_state.set(GameState::Playing);
+                    action.0 = 1;
                 }
             });
         });
@@ -205,7 +208,7 @@ fn pre_game_ui(
 
 fn death_ui(
     ctx: &egui::Context,
-    next_state: &mut NextState<GameState>,
+    action: &mut UiAction,
     outcome: &GameOutcome,
 ) {
     let (title, subtitle, title_color) = if outcome.0 {
@@ -226,7 +229,7 @@ fn death_ui(
                 if ui.add_sized([200.0, 42.0], egui::Button::new(
                     egui::RichText::new("RESTART").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                 ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180))).clicked() {
-                    next_state.set(GameState::PreGame);
+                    action.0 = 2;
                 }
             });
         });

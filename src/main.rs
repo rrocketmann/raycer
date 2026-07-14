@@ -3,6 +3,7 @@ use avian3d::dynamics::solver::SolverConfig;
 use avian3d::prelude::*;
 
 use crate::car::{PlayerCar, Health, AiCar, ExplosionTimer};
+use crate::ui::UiAction;
 
 mod ai;
 mod blaster;
@@ -74,11 +75,24 @@ impl Default for AiEnemyCount {
     fn default() -> Self { Self(3) }
 }
 
-fn check_player_eliminated(
+fn handle_ui_actions(
+    mut action: ResMut<UiAction>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    match action.0 {
+        1 => next_state.set(GameState::Playing),
+        2 => next_state.set(GameState::PreGame),
+        _ => {}
+    }
+    action.0 = 0;
+}
+
+fn check_game_state(
     mut commands: Commands,
     mut next_state: ResMut<NextState<GameState>>,
     mut outcome: ResMut<GameOutcome>,
     player_query: Query<(Entity, &Health), With<PlayerCar>>,
+    ai_query: Query<(), With<AiCar>>,
     exploding_query: Query<&ExplosionTimer>,
 ) {
     for (entity, health) in player_query.iter() {
@@ -90,21 +104,14 @@ fn check_player_eliminated(
                 AngularVelocity::ZERO,
             ));
             next_state.set(GameState::Eliminated);
+            return;
         }
     }
-}
-
-fn check_win_condition(
-    mut next_state: ResMut<NextState<GameState>>,
-    mut outcome: ResMut<GameOutcome>,
-    player_query: Query<&Health, With<PlayerCar>>,
-    ai_query: Query<(), With<AiCar>>,
-) {
-    let Ok(player_health) = player_query.single() else { return };
-    if player_health.0 == 0 { return; }
-    if ai_query.iter().count() == 0 {
-        outcome.0 = true;
-        next_state.set(GameState::Eliminated);
+    if let Ok((_, player_health)) = player_query.single() {
+        if player_health.0 > 0 && ai_query.iter().count() == 0 {
+            outcome.0 = true;
+            next_state.set(GameState::Eliminated);
+        }
     }
 }
 
@@ -134,8 +141,10 @@ fn main() {
         .init_resource::<RubberBullets>()
         .init_resource::<MaxHealthPoints>()
         .init_resource::<GameOutcome>()
+        .init_resource::<UiAction>()
         .add_systems(Update, enter_pregame.run_if(in_state(GameState::Loading)))
-        .add_systems(Update, (check_player_eliminated, check_win_condition).run_if(in_state(GameState::Playing)))
+        .add_systems(Update, check_game_state.run_if(in_state(GameState::Playing)))
+        .add_systems(Update, handle_ui_actions)
         .add_plugins((ai::AiPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
 
     #[cfg(feature = "dev")]
