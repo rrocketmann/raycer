@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use avian3d::dynamics::solver::SolverConfig;
 use avian3d::prelude::*;
 
-use crate::car::{PlayerCar, Health, ExplosionTimer};
+use crate::car::{PlayerCar, Health, AiCar, ExplosionTimer};
 use crate::ui::UiAction;
 
 mod ai;
@@ -12,11 +12,12 @@ mod track;
 mod ui;
 
 #[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
-pub enum GameState {
+enum GameState {
     #[default]
     Loading,
     PreGame,
     Playing,
+    Eliminated,
 }
 
 #[derive(Resource)]
@@ -34,7 +35,10 @@ impl Default for MaxHealthPoints {
 }
 
 #[derive(Resource, Default)]
-pub struct PendingState(pub Option<GameState>);
+pub struct GameOutcome(pub bool);
+
+#[derive(Resource, Default)]
+struct PendingState(Option<GameState>);
 
 #[derive(Resource)]
 struct LoadingAssets {
@@ -87,8 +91,10 @@ fn handle_ui_actions(
     mut action: ResMut<UiAction>,
     mut pending: ResMut<PendingState>,
 ) {
-    if action.0 == 1 {
-        pending.0 = Some(GameState::Playing);
+    match action.0 {
+        1 => pending.0 = Some(GameState::Playing),
+        2 => pending.0 = Some(GameState::PreGame),
+        _ => {}
     }
     action.0 = 0;
 }
@@ -96,18 +102,27 @@ fn handle_ui_actions(
 fn check_game_state(
     mut commands: Commands,
     mut pending: ResMut<PendingState>,
+    mut outcome: ResMut<GameOutcome>,
     player_query: Query<(Entity, &Health), With<PlayerCar>>,
+    ai_query: Query<(), With<AiCar>>,
     exploding_query: Query<&ExplosionTimer>,
 ) {
     for (entity, health) in player_query.iter() {
         if health.0 == 0 && exploding_query.get(entity).is_err() {
+            outcome.0 = false;
             commands.entity(entity).insert((
-                ExplosionTimer(Timer::from_seconds(0.5, TimerMode::Once)),
+                ExplosionTimer(Timer::from_seconds(0.4, TimerMode::Once)),
                 LinearVelocity::ZERO,
                 AngularVelocity::ZERO,
             ));
-            pending.0 = Some(GameState::PreGame);
+            pending.0 = Some(GameState::Eliminated);
             return;
+        }
+    }
+    if let Ok((_, player_health)) = player_query.single() {
+        if player_health.0 > 0 && ai_query.iter().count() == 0 {
+            outcome.0 = true;
+            pending.0 = Some(GameState::Eliminated);
         }
     }
 }
@@ -137,6 +152,7 @@ fn main() {
         .init_resource::<AiEnemyCount>()
         .init_resource::<RubberBullets>()
         .init_resource::<MaxHealthPoints>()
+        .init_resource::<GameOutcome>()
         .init_resource::<UiAction>()
         .init_resource::<PendingState>()
         .add_systems(Update, enter_pregame.run_if(in_state(GameState::Loading)))

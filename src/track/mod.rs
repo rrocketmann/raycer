@@ -22,7 +22,7 @@ impl Plugin for TrackPlugin {
         app.add_systems(OnEnter(GameState::PreGame), (spawn_menu_floor, spawn_world))
             .add_systems(OnExit(GameState::PreGame), cleanup_world)
             .add_systems(OnEnter(GameState::Playing), spawn_world)
-            .add_systems(OnExit(GameState::Playing), cleanup_world);
+            .add_systems(OnExit(GameState::Eliminated), cleanup_world);
     }
 }
 

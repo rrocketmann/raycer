@@ -8,6 +8,7 @@ use crate::GameState;
 use crate::AiEnemyCount;
 use crate::RubberBullets;
 use crate::MaxHealthPoints;
+use crate::GameOutcome;
 
 pub struct UiPlugin;
 
@@ -31,6 +32,7 @@ fn egui_panel(
     mut ai_enemy_count: ResMut<AiEnemyCount>,
     mut rubber_bullets: ResMut<RubberBullets>,
     mut max_hp: ResMut<MaxHealthPoints>,
+    outcome: Res<GameOutcome>,
     mut action: ResMut<UiAction>,
 ) {
     let ctx = match contexts.ctx_mut() {
@@ -45,6 +47,9 @@ fn egui_panel(
         }
         GameState::Playing => {
             playing_ui(ctx, &telemetry, &mut car_selection, &mut blaster_selection, &keys);
+        }
+        GameState::Eliminated => {
+            death_ui(ctx, &mut action, &outcome);
         }
     }
 }
@@ -201,7 +206,34 @@ fn pre_game_ui(
         });
 }
 
+fn death_ui(
+    ctx: &egui::Context,
+    action: &mut UiAction,
+    outcome: &GameOutcome,
+) {
+    let (title, subtitle, title_color) = if outcome.0 {
+        ("VICTORY", "All enemies eliminated!", egui::Color32::from_rgba_unmultiplied(50, 255, 50, 255))
+    } else {
+        ("TERMINATED", "Your car was destroyed!", egui::Color32::from_rgba_unmultiplied(255, 50, 50, 255))
+    };
 
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE.fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200)))
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(200.0);
+                ui.label(egui::RichText::new(title).size(48.0).color(title_color).strong());
+                ui.add_space(20.0);
+                ui.label(egui::RichText::new(subtitle).size(16.0).color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 200)));
+                ui.add_space(40.0);
+                if ui.add_sized([200.0, 42.0], egui::Button::new(
+                    egui::RichText::new("RESTART").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+                ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180))).clicked() {
+                    action.0 = 2;
+                }
+            });
+        });
+}
 
 fn playing_ui(
     ctx: &egui::Context,

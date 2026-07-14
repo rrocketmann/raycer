@@ -36,11 +36,10 @@ pub struct AiPlugin;
 
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::PreGame), spawn_ai_cars)
-            .add_systems(OnExit(GameState::PreGame), cleanup_ai_cars)
+        app.add_systems(OnExit(GameState::PreGame), cleanup_ai_cars)
             .add_systems(OnEnter(GameState::Playing), spawn_ai_cars)
-            .add_systems(OnExit(GameState::Playing), cleanup_ai_cars)
-            .add_systems(Update, sync_ai_count.run_if(in_state(GameState::PreGame)))
+            .add_systems(OnExit(GameState::Eliminated), cleanup_ai_cars)
+            .add_systems(Update, sync_ai_count.run_if(in_state(GameState::Playing)))
             .add_systems(Update, (
                 ai_compute_pivot,
                 ai_aim_blaster,
@@ -517,7 +516,7 @@ fn despawn_dead_cars(
     for (entity, health) in ai_query.iter() {
         if health.0 == 0 && exploding_query.get(entity).is_err() {
             commands.entity(entity).insert((
-                ExplosionTimer(Timer::from_seconds(0.5, TimerMode::Once)),
+                ExplosionTimer(Timer::from_seconds(0.4, TimerMode::Once)),
                 LinearVelocity::ZERO,
                 AngularVelocity::ZERO,
             ));

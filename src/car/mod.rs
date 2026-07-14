@@ -84,6 +84,7 @@ impl Plugin for CarPlugin {
                 ).run_if(in_state(GameState::Playing)),
             )
             .add_systems(Update, switch_car_model_pregame.run_if(in_state(GameState::PreGame)))
+            .add_systems(Update, sync_pregame_health.run_if(in_state(GameState::PreGame)))
             .add_systems(Update, update_health_indicators.run_if(in_state(GameState::Playing)))
             .add_systems(Update, (update_explosions, move_explosion_particles));
     }
@@ -137,6 +138,30 @@ fn update_health_indicators(
             }
         }
     }
+}
+
+fn sync_pregame_health(
+    mut commands: Commands,
+    car_query: Query<Entity, With<PlayerCar>>,
+    segment_query: Query<&HealthSegment>,
+    children_query: Query<&Children>,
+    car_selection: Res<CarSelection>,
+    max_hp: Res<MaxHealthPoints>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut last_hp: Local<u8>,
+) {
+    if *last_hp == max_hp.0 { return; }
+    *last_hp = max_hp.0;
+    let Ok(car_root) = car_query.single() else { return };
+    for child in children_query.iter_descendants(car_root) {
+        if segment_query.get(child).is_ok() {
+            commands.entity(child).despawn();
+        }
+    }
+    commands.entity(car_root).insert(Health(max_hp.0));
+    let def = &CAR_DEFS[car_selection.index];
+    spawn_health_indicators(car_root, &mut commands, &mut meshes, &mut materials, def.collider.y, max_hp.0);
 }
 
 #[derive(Component)]
