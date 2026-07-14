@@ -71,11 +71,11 @@ fn pre_game_ui(
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(140.0);
-                ui.label(egui::RichText::new("RAYCER").size(56.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200)).strong());
+                ui.label(egui::RichText::new("R A Y C E R").size(56.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200)).strong());
                 ui.add_space(60.0);
 
                 ui.allocate_ui_with_layout(
-                    egui::vec2(panel_w, 220.0),
+                    egui::vec2(panel_w, 280.0),
                     egui::Layout::top_down(egui::Align::Center),
                     |ui| {
                         // Car row
@@ -140,13 +140,24 @@ fn pre_game_ui(
                             }
                         });
 
-                        ui.add_space(12.0);
+                        ui.add_space(20.0);
 
-                        // Rubber Bullets toggle
+                        // Rubber Bullets row
+                        ui.label(egui::RichText::new("RUBBER BULLETS").size(11.0).color(egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180)));
+                        ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            ui.add_space((panel_w - 160.0) / 2.0);
-                            let label = egui::RichText::new("Rubber Bullets").size(12.0).color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 200));
-                            ui.checkbox(&mut rubber_bullets.0, label);
+                            ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                rubber_bullets.0 = false;
+                            }
+                            name_box(ui, if rubber_bullets.0 { "ON" } else { "OFF" });
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                rubber_bullets.0 = true;
+                            }
                         });
                     },
                 );
