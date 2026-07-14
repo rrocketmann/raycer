@@ -19,11 +19,26 @@ pub struct TrackPlugin;
 
 impl Plugin for TrackPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::PreGame), spawn_world)
+        app.add_systems(OnEnter(GameState::PreGame), (spawn_menu_floor, spawn_world))
             .add_systems(OnExit(GameState::PreGame), cleanup_world)
             .add_systems(OnEnter(GameState::Playing), spawn_world)
             .add_systems(OnExit(GameState::Eliminated), cleanup_world);
     }
+}
+
+fn spawn_menu_floor(
+    mut commands: Commands,
+    car_selection: Res<CarSelection>,
+) {
+    let def = &CAR_DEFS[car_selection.index];
+    let floor_size = def.collider.x.max(def.collider.z) * 2.0;
+    commands.spawn((
+        Collider::cuboid(floor_size, 0.1, floor_size),
+        RigidBody::Static,
+        Transform::from_xyz(0.0, 0.0, 0.0),
+        WorldMarker,
+        MenuFloor,
+    ));
 }
 
 fn spawn_world(
@@ -34,21 +49,8 @@ fn spawn_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     max_hp: Res<MaxHealthPoints>,
-    state: Res<State<GameState>>,
 ) {
     let def = &CAR_DEFS[car_selection.index];
-
-    if state.get() == &GameState::PreGame {
-        let floor_size = def.collider.x.max(def.collider.z) * 2.0;
-        commands.spawn((
-            Collider::cuboid(floor_size, 0.1, floor_size),
-            RigidBody::Static,
-            Transform::from_xyz(0.0, 0.0, 0.0),
-            WorldMarker,
-            MenuFloor,
-        ));
-    }
-
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
     let blaster_def = &BLASTER_DEFS[blaster_selection.index];
     let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
