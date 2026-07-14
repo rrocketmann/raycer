@@ -3,9 +3,10 @@ use bevy::prelude::*;
 use std::collections::HashSet;
 use std::time::Duration;
 use crate::blaster::{Bullet, ExcludeMeshRayCast, BLASTER_DEFS, BULLET_RADIUS, BULLET_SPEED};
-use crate::car::{AiCar, CarVisual, PlayerCar, CAR_DEFS, mount_y, Health, spawn_health_indicators};
+use crate::car::{AiCar, CarVisual, PlayerCar, CAR_DEFS, mount_y, Health, spawn_health_indicators, ExplosionTimer};
 use crate::GameState;
 use crate::AiEnemyCount;
+use crate::MaxHealthPoints;
 use rand::Rng;
 
 #[derive(Component)]
@@ -60,6 +61,7 @@ fn spawn_ai_cars(
     enemy_count: Res<AiEnemyCount>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    max_hp: Res<MaxHealthPoints>,
 ) {
     let car_options: Vec<usize> = vec![3, 5, 8, 10, 13, 15, 0, 6];
     let blaster_options: Vec<usize> = vec![1, 3, 5, 7, 9, 11, 13, 15, 17, 0];
@@ -108,8 +110,8 @@ fn spawn_ai_cars(
             Friction::new(0.01),
             SweptCcd::NON_LINEAR,
             Mass(6.0),
-        )).insert(Health(3)).id();
-        spawn_health_indicators(ai_root, &mut commands, &mut meshes, &mut materials, def.collider.y);
+        )).insert(Health(max_hp.0)).id();
+        spawn_health_indicators(ai_root, &mut commands, &mut meshes, &mut materials, def.collider.y, max_hp.0);
 
         let mut rng = rand::rng();
         let shoot_interval = rng.random_range(1.0..4.0);
@@ -155,6 +157,7 @@ fn sync_ai_count(
     ai_query: Query<Entity, With<AiSpawnMarker>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    max_hp: Res<MaxHealthPoints>,
 ) {
     let desired = enemy_count.0;
     let current = ai_query.iter().count();
@@ -211,8 +214,8 @@ fn sync_ai_count(
                 Friction::new(0.01),
                 SweptCcd::NON_LINEAR,
                 Mass(6.0),
-            )).insert(Health(3)).id();
-            spawn_health_indicators(ai_root, &mut commands, &mut meshes, &mut materials, def.collider.y);
+            )).insert(Health(max_hp.0)).id();
+            spawn_health_indicators(ai_root, &mut commands, &mut meshes, &mut materials, def.collider.y, max_hp.0);
 
             let mut rng = rand::rng();
             let shoot_interval = rng.random_range(1.0..4.0);
@@ -510,10 +513,11 @@ fn ai_shoot(
 fn despawn_dead_cars(
     mut commands: Commands,
     ai_query: Query<(Entity, &Health), With<AiCar>>,
+    exploding_query: Query<&ExplosionTimer>,
 ) {
     for (entity, health) in ai_query.iter() {
-        if health.0 == 0 {
-            commands.entity(entity).despawn();
+        if health.0 == 0 && exploding_query.get(entity).is_err() {
+            commands.entity(entity).insert(ExplosionTimer(Timer::from_seconds(1.5, TimerMode::Once)));
         }
     }
 }

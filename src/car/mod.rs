@@ -2,7 +2,11 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::input::mouse::{MouseWheel, MouseMotion};
 use bevy::ecs::message::MessageReader;
+use rand::Rng;
 use crate::GameState;
+use crate::MaxHealthPoints;
+
+pub const SKY_BOUNDARY: f32 = 50.0;
 
 #[derive(Component)]
 pub struct Health(pub u8);
@@ -80,7 +84,8 @@ impl Plugin for CarPlugin {
                 ).run_if(in_state(GameState::Playing)),
             )
             .add_systems(Update, switch_car_model_pregame.run_if(in_state(GameState::PreGame)))
-            .add_systems(Update, (update_health_indicators, billboard_health).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (update_health_indicators, billboard_health).run_if(in_state(GameState::Playing)))
+            .add_systems(Update, (update_explosions, move_explosion_particles));
     }
 }
 
@@ -90,22 +95,25 @@ pub fn spawn_health_indicators(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     collider_y: f32,
+    hp: u8,
 ) {
     let square_size = 0.25;
     let gap = 0.35;
-    let start_x = -gap;
+    let count = hp as usize;
+    let total_width = (count as f32 - 1.0) * gap;
+    let start_x = -total_width * 0.5;
     let y_offset = collider_y + 2.5;
     let mesh = meshes.add(Rectangle::new(square_size, square_size));
     let material = materials.add(Color::srgb(0.45, 0.45, 0.45));
 
-    for i in 0..3 {
+    for i in 0..count {
         let x = start_x + i as f32 * gap;
         commands.entity(car_entity).with_children(|parent| {
             parent.spawn((
                 Mesh3d(mesh.clone()),
                 MeshMaterial3d(material.clone()),
                 Transform::from_xyz(x, y_offset, 0.0),
-                HealthSegment(i),
+                HealthSegment(i as u8),
             ));
         });
     }
@@ -116,10 +124,11 @@ fn update_health_indicators(
     health_query: Query<(Entity, &Health)>,
     segment_query: Query<&HealthSegment>,
     children_query: Query<&Children>,
+    max_hp: Res<MaxHealthPoints>,
 ) {
     for (car_entity, health) in health_query.iter() {
         let hp = health.0;
-        if hp >= 3 { continue; }
+        if hp >= max_hp.0 { continue; }
         for child in children_query.iter_descendants(car_entity) {
             if let Ok(segment) = segment_query.get(child) {
                 if segment.0 >= hp {
@@ -146,6 +155,68 @@ fn billboard_health(
         let world_rot = Quat::from_rotation_arc(Vec3::Z, dir_to_cam);
         let parent_rot = parent_global.rotation();
         transform.rotation = parent_rot.inverse() * world_rot;
+    }
+}
+
+#[derive(Component)]
+pub struct ExplosionTimer(pub Timer);
+
+#[derive(Component)]
+struct ExplosionParticle {
+    velocity: Vec3,
+    lifetime: Timer,
+}
+
+fn move_explosion_particles(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut particles: Query<(Entity, &mut Transform, &mut ExplosionParticle)>,
+) {
+    for (entity, mut transform, mut particle) in particles.iter_mut() {
+        particle.lifetime.tick(time.delta());
+        if particle.lifetime.just_finished() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        transform.translation += particle.velocity * time.delta_secs();
+    }
+}
+
+fn update_explosions(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut explosion_query: Query<(Entity, &GlobalTransform, &mut ExplosionTimer)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, transform, mut timer) in explosion_query.iter_mut() {
+        timer.0.tick(time.delta());
+        if timer.0.just_finished() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let mut rng = rand::rng();
+        for _ in 0..3 {
+            let dir = Vec3::new(
+                rng.random_range(-1.0..1.0),
+                rng.random_range(0.0..1.0),
+                rng.random_range(-1.0..1.0),
+            ).normalize_or(Vec3::Y);
+            let speed = rng.random_range(15.0..40.0);
+            commands.spawn((
+                Mesh3d(meshes.add(Sphere::new(0.25).mesh().ico(1).unwrap())),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Srgba::hex("ff6600").unwrap().into(),
+                    emissive: LinearRgba::new(6.0, 2.0, 0.0, 1.0),
+                    ..default()
+                })),
+                Transform::from_translation(transform.translation()),
+                ExplosionParticle {
+                    velocity: dir * speed,
+                    lifetime: Timer::from_seconds(rng.random_range(0.3..0.8), TimerMode::Once),
+                },
+            ));
+        }
     }
 }
 

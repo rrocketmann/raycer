@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use avian3d::dynamics::solver::SolverConfig;
 use avian3d::prelude::*;
 
-use crate::car::{PlayerCar, Health};
+use crate::car::{PlayerCar, Health, AiCar, ExplosionTimer};
 
 mod ai;
 mod blaster;
@@ -25,6 +25,16 @@ pub struct RubberBullets(pub bool);
 impl Default for RubberBullets {
     fn default() -> Self { Self(false) }
 }
+
+#[derive(Resource)]
+pub struct MaxHealthPoints(pub u8);
+
+impl Default for MaxHealthPoints {
+    fn default() -> Self { Self(3) }
+}
+
+#[derive(Resource, Default)]
+pub struct GameOutcome(pub bool);
 
 #[derive(Resource)]
 struct LoadingAssets {
@@ -58,20 +68,39 @@ fn enter_pregame(
 }
 
 #[derive(Resource)]
-struct AiEnemyCount(usize);
+pub struct AiEnemyCount(pub usize);
 
 impl Default for AiEnemyCount {
     fn default() -> Self { Self(3) }
 }
 
 fn check_player_eliminated(
+    mut commands: Commands,
     mut next_state: ResMut<NextState<GameState>>,
-    player_query: Query<&Health, With<PlayerCar>>,
+    mut outcome: ResMut<GameOutcome>,
+    player_query: Query<(Entity, &Health), With<PlayerCar>>,
+    exploding_query: Query<&ExplosionTimer>,
 ) {
-    if let Ok(health) = player_query.single() {
-        if health.0 == 0 {
+    for (entity, health) in player_query.iter() {
+        if health.0 == 0 && exploding_query.get(entity).is_err() {
+            outcome.0 = false;
+            commands.entity(entity).insert(ExplosionTimer(Timer::from_seconds(1.5, TimerMode::Once)));
             next_state.set(GameState::Eliminated);
         }
+    }
+}
+
+fn check_win_condition(
+    mut next_state: ResMut<NextState<GameState>>,
+    mut outcome: ResMut<GameOutcome>,
+    player_query: Query<&Health, With<PlayerCar>>,
+    ai_query: Query<(), With<AiCar>>,
+) {
+    let Ok(player_health) = player_query.single() else { return };
+    if player_health.0 == 0 { return; }
+    if ai_query.iter().count() == 0 {
+        outcome.0 = true;
+        next_state.set(GameState::Eliminated);
     }
 }
 
@@ -99,8 +128,10 @@ fn main() {
         .init_state::<GameState>()
         .init_resource::<AiEnemyCount>()
         .init_resource::<RubberBullets>()
+        .init_resource::<MaxHealthPoints>()
+        .init_resource::<GameOutcome>()
         .add_systems(Update, enter_pregame.run_if(in_state(GameState::Loading)))
-        .add_systems(Update, check_player_eliminated.run_if(in_state(GameState::Playing)))
+        .add_systems(Update, (check_player_eliminated, check_win_condition).run_if(in_state(GameState::Playing)))
         .add_plugins((ai::AiPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
 
     #[cfg(feature = "dev")]

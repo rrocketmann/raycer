@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use bevy::prelude::*;
 use avian3d::prelude::{Collider, SpatialQuery, ShapeCastConfig, SpatialQueryFilter};
-use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health};
+use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health, SKY_BOUNDARY};
 use crate::GameState;
 use crate::RubberBullets;
 
@@ -254,6 +254,10 @@ fn move_bullets(
         if bullet.lifetime.just_finished() {
             commands.entity(entity).despawn();
             continue;
+        }
+
+        if rubber_bullets.0 && transform.translation.y > SKY_BOUNDARY {
+            bullet.velocity.y = -bullet.velocity.y.abs();
         }
 
         let prev_pos = transform.translation;

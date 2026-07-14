@@ -4,6 +4,7 @@ use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, ShadowFi
 use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData, CarSelection, Health, spawn_health_indicators};
 use crate::blaster::{BlasterSelection, BLASTER_DEFS};
 use crate::GameState;
+use crate::MaxHealthPoints;
 
 #[derive(Component)]
 struct MapRoot;
@@ -30,6 +31,7 @@ fn spawn_world(
     blaster_selection: Res<BlasterSelection>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    max_hp: Res<MaxHealthPoints>,
 ) {
     let def = &CAR_DEFS[car_selection.index];
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
@@ -45,8 +47,8 @@ fn spawn_world(
         Rotation::default(),
         LinearVelocity::ZERO,
         AngularVelocity::ZERO,
-    )).insert(Health(3)).id();
-    spawn_health_indicators(car_root, &mut commands, &mut meshes, &mut materials, def.collider.y);
+    )).insert(Health(max_hp.0)).id();
+    spawn_health_indicators(car_root, &mut commands, &mut meshes, &mut materials, def.collider.y, max_hp.0);
     let half_height = def.collider.y * 0.5;
     commands.entity(car_root).insert((
         LinearDamping(0.5),

@@ -7,6 +7,8 @@ use crate::blaster::{BlasterSelection, BLASTER_DEFS};
 use crate::GameState;
 use crate::AiEnemyCount;
 use crate::RubberBullets;
+use crate::MaxHealthPoints;
+use crate::GameOutcome;
 
 pub struct UiPlugin;
 
@@ -27,6 +29,8 @@ fn egui_panel(
     mut next_state: ResMut<NextState<GameState>>,
     mut ai_enemy_count: ResMut<AiEnemyCount>,
     mut rubber_bullets: ResMut<RubberBullets>,
+    mut max_hp: ResMut<MaxHealthPoints>,
+    outcome: Res<GameOutcome>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -36,13 +40,13 @@ fn egui_panel(
     match game_state.get() {
         GameState::Loading => {}
         GameState::PreGame => {
-            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut rubber_bullets, &mut next_state);
+            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut rubber_bullets, &mut max_hp, &mut next_state);
         }
         GameState::Playing => {
             playing_ui(ctx, &telemetry, &mut car_selection, &mut blaster_selection, &keys);
         }
         GameState::Eliminated => {
-            death_ui(ctx, &mut next_state);
+            death_ui(ctx, &mut next_state, &outcome);
         }
     }
 }
@@ -61,6 +65,7 @@ fn pre_game_ui(
     blaster_selection: &mut BlasterSelection,
     ai_enemy_count: &mut AiEnemyCount,
     rubber_bullets: &mut RubberBullets,
+    max_hp: &mut MaxHealthPoints,
     next_state: &mut NextState<GameState>,
 ) {
     let panel_w = 260.0;
@@ -75,7 +80,7 @@ fn pre_game_ui(
                 ui.add_space(60.0);
 
                 ui.allocate_ui_with_layout(
-                    egui::vec2(panel_w, 280.0),
+                    egui::vec2(panel_w, 330.0),
                     egui::Layout::top_down(egui::Align::Center),
                     |ui| {
                         // Car row
@@ -142,6 +147,26 @@ fn pre_game_ui(
 
                         ui.add_space(20.0);
 
+                        // Health Points row
+                        ui.label(egui::RichText::new("HEALTH POINTS").size(11.0).color(egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180)));
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                max_hp.0 = max_hp.0.saturating_sub(1).max(2);
+                            }
+                            name_box(ui, &format!("{}", max_hp.0));
+                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
+                                egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                max_hp.0 = (max_hp.0 + 1).min(10);
+                            }
+                        });
+
+                        ui.add_space(20.0);
+
                         // Rubber Bullets row
                         ui.label(egui::RichText::new("RUBBER BULLETS").size(11.0).color(egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180)));
                         ui.add_space(4.0);
@@ -181,18 +206,25 @@ fn pre_game_ui(
 fn death_ui(
     ctx: &egui::Context,
     next_state: &mut NextState<GameState>,
+    outcome: &GameOutcome,
 ) {
+    let (title, subtitle, title_color) = if outcome.0 {
+        ("VICTORY", "All enemies eliminated!", egui::Color32::from_rgba_unmultiplied(50, 255, 50, 255))
+    } else {
+        ("TERMINATED", "Your car was destroyed!", egui::Color32::from_rgba_unmultiplied(255, 50, 50, 255))
+    };
+
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200)))
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(200.0);
-                ui.label(egui::RichText::new("ELIMINATED").size(48.0).color(egui::Color32::from_rgba_unmultiplied(255, 50, 50, 255)).strong());
+                ui.label(egui::RichText::new(title).size(48.0).color(title_color).strong());
                 ui.add_space(20.0);
-                ui.label(egui::RichText::new("You have been eliminated").size(16.0).color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 200)));
+                ui.label(egui::RichText::new(subtitle).size(16.0).color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 200)));
                 ui.add_space(40.0);
                 if ui.add_sized([200.0, 42.0], egui::Button::new(
-                    egui::RichText::new("BACK TO MENU").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+                    egui::RichText::new("RESTART").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                 ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180))).clicked() {
                     next_state.set(GameState::PreGame);
                 }
