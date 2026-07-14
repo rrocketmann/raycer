@@ -84,7 +84,11 @@ fn check_player_eliminated(
     for (entity, health) in player_query.iter() {
         if health.0 == 0 && exploding_query.get(entity).is_err() {
             outcome.0 = false;
-            commands.entity(entity).insert(ExplosionTimer(Timer::from_seconds(1.5, TimerMode::Once)));
+            commands.entity(entity).insert((
+                ExplosionTimer(Timer::from_seconds(0.8, TimerMode::Once)),
+                LinearVelocity::ZERO,
+                AngularVelocity::ZERO,
+            ));
             next_state.set(GameState::Eliminated);
         }
     }
