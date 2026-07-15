@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 use avian3d::dynamics::solver::SolverConfig;
 use avian3d::prelude::*;
+use rand::Rng;
 
 use crate::car::{PlayerCar, Health, AiCar, ExplosionTimer};
-use crate::ui::UiAction;
 
 mod ai;
 mod blaster;
@@ -21,24 +21,30 @@ enum GameState {
 }
 
 #[derive(Resource)]
-pub struct RubberBullets(pub bool);
+pub struct RubberBullets {
+    pub enabled: bool,
+    pub random: bool,
+}
 
 impl Default for RubberBullets {
-    fn default() -> Self { Self(false) }
+    fn default() -> Self { Self { enabled: false, random: false } }
 }
 
 #[derive(Resource)]
-pub struct MaxHealthPoints(pub u8);
+pub struct MaxHealthPoints {
+    pub hp: u8,
+    pub random: bool,
+}
 
 impl Default for MaxHealthPoints {
-    fn default() -> Self { Self(3) }
+    fn default() -> Self { Self { hp: 3, random: false } }
 }
 
 #[derive(Resource, Default)]
 pub struct GameOutcome(pub bool);
 
 #[derive(Resource, Default)]
-struct PendingState(Option<GameState>);
+pub struct PendingState(Option<GameState>);
 
 #[derive(Resource)]
 struct LoadingAssets {
@@ -72,10 +78,13 @@ fn enter_pregame(
 }
 
 #[derive(Resource)]
-pub struct AiEnemyCount(pub usize);
+pub struct AiEnemyCount {
+    pub count: usize,
+    pub random: bool,
+}
 
 impl Default for AiEnemyCount {
-    fn default() -> Self { Self(3) }
+    fn default() -> Self { Self { count: 3, random: false } }
 }
 
 fn apply_pending_state(
@@ -85,18 +94,6 @@ fn apply_pending_state(
     if let Some(state) = pending.0.take() {
         next_state.set(state);
     }
-}
-
-fn handle_ui_actions(
-    mut action: ResMut<UiAction>,
-    mut pending: ResMut<PendingState>,
-) {
-    match action.0 {
-        1 => pending.0 = Some(GameState::Playing),
-        2 => pending.0 = Some(GameState::PreGame),
-        _ => {}
-    }
-    action.0 = 0;
 }
 
 fn check_game_state(
@@ -129,11 +126,32 @@ fn check_game_state(
             return;
         }
     }
-    if let Ok((_, player_health, _)) = player_query.single() {
-        if player_health.0 > 0 && ai_query.iter().count() == 0 {
-            outcome.0 = true;
-            pending.0 = Some(GameState::Eliminated);
+    if ai_query.iter().count() == 0 {
+        for (_, player_health, _) in player_query.iter() {
+            if player_health.0 > 0 {
+                outcome.0 = true;
+                pending.0 = Some(GameState::Eliminated);
+            }
         }
+    }
+}
+
+fn resolve_random_options(
+    mut enemy_count: ResMut<AiEnemyCount>,
+    mut max_hp: ResMut<MaxHealthPoints>,
+    mut rubber_bullets: ResMut<RubberBullets>,
+) {
+    if enemy_count.random {
+        enemy_count.count = rand::rng().random_range(0..=10);
+        enemy_count.random = false;
+    }
+    if max_hp.random {
+        max_hp.hp = rand::rng().random_range(2..=10);
+        max_hp.random = false;
+    }
+    if rubber_bullets.random {
+        rubber_bullets.enabled = rand::rng().random_bool(0.5);
+        rubber_bullets.random = false;
     }
 }
 
@@ -163,11 +181,10 @@ fn main() {
         .init_resource::<RubberBullets>()
         .init_resource::<MaxHealthPoints>()
         .init_resource::<GameOutcome>()
-        .init_resource::<UiAction>()
         .init_resource::<PendingState>()
+        .add_systems(OnEnter(GameState::Playing), resolve_random_options)
         .add_systems(Update, enter_pregame.run_if(in_state(GameState::Loading)))
         .add_systems(Update, check_game_state.run_if(in_state(GameState::Playing)))
-        .add_systems(Update, handle_ui_actions)
         .add_systems(Update, apply_pending_state)
         .add_plugins((ai::AiPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
 

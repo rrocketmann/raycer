@@ -47,10 +47,23 @@ pub fn mount_y(collider_y: f32) -> f32 {
     collider_y * 1.5 + 0.1
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct CarSelection {
     pub index: usize,
     pub pending_change: bool,
+    pub random: bool,
+}
+
+impl Default for CarSelection {
+    fn default() -> Self {
+        Self { index: 0, pending_change: false, random: false }
+    }
+}
+
+impl CarSelection {
+    pub fn display_index(&self) -> usize {
+        if self.random { 0 } else { self.index }
+    }
 }
 
 pub struct CarPlugin;
@@ -71,7 +84,8 @@ impl Plugin for CarPlugin {
             )
             .add_systems(Update, capture_input.run_if(in_state(GameState::Playing)))
             .add_systems(Update, camera_input.run_if(in_state(GameState::Playing)))
-            .add_systems(Update, (sync_car_state, clamp_speed, camera_follow).run_if(in_state(GameState::Playing)))
+            .add_systems(Update, (sync_car_state, clamp_speed).run_if(in_state(GameState::Playing)))
+            .add_systems(Update, camera_follow.run_if(in_state(GameState::Playing).or(in_state(GameState::Eliminated))))
             .add_systems(
                 Update,
                 (
@@ -84,7 +98,7 @@ impl Plugin for CarPlugin {
             .add_systems(Update, switch_car_model_pregame.run_if(in_state(GameState::PreGame)))
             .add_systems(Update, sync_pregame_health.run_if(in_state(GameState::PreGame)))
             .add_systems(Update, update_health_indicators.run_if(in_state(GameState::Playing)))
-            .add_systems(Update, (update_explosions, move_explosion_particles));
+            .add_systems(Update, (update_explosions, move_explosion_particles).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -127,7 +141,7 @@ fn update_health_indicators(
 ) {
     for (car_entity, health) in health_query.iter() {
         let hp = health.0;
-        if hp >= max_hp.0 { continue; }
+        if hp >= max_hp.hp { continue; }
         for child in children_query.iter_descendants(car_entity) {
             if let Ok(segment) = segment_query.get(child) {
                 if segment.0 >= hp {
@@ -149,17 +163,17 @@ fn sync_pregame_health(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut last_hp: Local<u8>,
 ) {
-    if *last_hp == max_hp.0 { return; }
-    *last_hp = max_hp.0;
+    if *last_hp == max_hp.hp { return; }
+    *last_hp = max_hp.hp;
     let Ok(car_root) = car_query.single() else { return };
     for child in children_query.iter_descendants(car_root) {
         if segment_query.get(child).is_ok() {
             commands.entity(child).despawn();
         }
     }
-    commands.entity(car_root).insert(Health(max_hp.0));
-    let def = &CAR_DEFS[car_selection.index];
-    spawn_health_indicators(car_root, &mut commands, &mut meshes, &mut materials, def.collider.y, max_hp.0);
+    commands.entity(car_root).insert(Health(max_hp.hp));
+    let def = &CAR_DEFS[car_selection.display_index()];
+    spawn_health_indicators(car_root, &mut commands, &mut meshes, &mut materials, def.collider.y, max_hp.hp);
 }
 
 #[derive(Component)]
@@ -904,11 +918,11 @@ fn switch_car_model(
 
     commands.entity(car_entity).remove::<WheelsLabeled>();
 
-    let def = &CAR_DEFS[selection.index];
+    let def = &CAR_DEFS[selection.display_index()];
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
     let half_height = def.collider.y * 0.5;
     let mount_y = crate::car::mount_y(def.collider.y);
-    let blaster_def = &crate::blaster::BLASTER_DEFS[blaster_selection.index];
+    let blaster_def = &crate::blaster::BLASTER_DEFS[blaster_selection.display_index()];
     let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
 
     commands.entity(car_entity).with_children(|parent| {
@@ -954,11 +968,11 @@ fn switch_car_model_pregame(
 
     commands.entity(car_entity).remove::<WheelsLabeled>();
 
-    let def = &CAR_DEFS[car_selection.index];
+    let def = &CAR_DEFS[car_selection.display_index()];
     let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
     let half_height = def.collider.y * 0.5;
     let mount_y = crate::car::mount_y(def.collider.y);
-    let blaster_def = &crate::blaster::BLASTER_DEFS[blaster_selection.index];
+    let blaster_def = &crate::blaster::BLASTER_DEFS[blaster_selection.display_index()];
     let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
 
     commands.entity(car_entity).with_children(|parent| {

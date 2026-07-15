@@ -1,14 +1,14 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::car::{CarSelection, CarState, CAR_DEFS};
-use crate::car::Telemetry;
+use crate::car::{CarSelection, Telemetry, CAR_DEFS};
 use crate::blaster::{BlasterSelection, BLASTER_DEFS};
 use crate::GameState;
 use crate::AiEnemyCount;
 use crate::RubberBullets;
 use crate::MaxHealthPoints;
 use crate::GameOutcome;
+use crate::PendingState;
 
 pub struct UiPlugin;
 
@@ -18,13 +18,9 @@ impl Plugin for UiPlugin {
     }
 }
 
-#[derive(Resource, Default)]
-pub struct UiAction(pub u8);
-
 fn egui_panel(
     mut contexts: EguiContexts,
     telemetry: Res<Telemetry>,
-    _car_state: Res<CarState>,
     mut car_selection: ResMut<CarSelection>,
     mut blaster_selection: ResMut<BlasterSelection>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -33,7 +29,7 @@ fn egui_panel(
     mut rubber_bullets: ResMut<RubberBullets>,
     mut max_hp: ResMut<MaxHealthPoints>,
     outcome: Res<GameOutcome>,
-    mut action: ResMut<UiAction>,
+    mut pending: ResMut<PendingState>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -43,13 +39,13 @@ fn egui_panel(
     match game_state.get() {
         GameState::Loading => {}
         GameState::PreGame => {
-            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut rubber_bullets, &mut max_hp, &mut action);
+            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut rubber_bullets, &mut max_hp, &mut *pending);
         }
         GameState::Playing => {
-            playing_ui(ctx, &telemetry, &mut car_selection, &mut blaster_selection, &keys);
+            playing_ui(ctx, &telemetry, &keys);
         }
         GameState::Eliminated => {
-            death_ui(ctx, &mut action, &outcome);
+            death_ui(ctx, &outcome, &mut *pending);
         }
     }
 }
@@ -69,7 +65,7 @@ fn pre_game_ui(
     ai_enemy_count: &mut AiEnemyCount,
     rubber_bullets: &mut RubberBullets,
     max_hp: &mut MaxHealthPoints,
-    action: &mut UiAction,
+    pending: &mut PendingState,
 ) {
     let panel_w = 260.0;
     let btn_size = 32.0;
@@ -94,14 +90,28 @@ fn pre_game_ui(
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                car_selection.index = if car_selection.index == 0 { CAR_DEFS.len() - 1 } else { car_selection.index - 1 };
+                                if car_selection.random {
+                                    car_selection.random = false;
+                                    car_selection.index = CAR_DEFS.len() - 1;
+                                } else if car_selection.index == 0 {
+                                    car_selection.random = true;
+                                } else {
+                                    car_selection.index -= 1;
+                                }
                                 car_selection.pending_change = true;
                             }
-                            name_box(ui, CAR_DEFS[car_selection.index].name);
+                            name_box(ui, if car_selection.random { "RANDOM" } else { CAR_DEFS[car_selection.index].name });
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                car_selection.index = (car_selection.index + 1) % CAR_DEFS.len();
+                                if car_selection.random {
+                                    car_selection.random = false;
+                                    car_selection.index = 0;
+                                } else if car_selection.index == CAR_DEFS.len() - 1 {
+                                    car_selection.random = true;
+                                } else {
+                                    car_selection.index += 1;
+                                }
                                 car_selection.pending_change = true;
                             }
                         });
@@ -116,14 +126,28 @@ fn pre_game_ui(
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                blaster_selection.index = if blaster_selection.index == 0 { BLASTER_DEFS.len() - 1 } else { blaster_selection.index - 1 };
+                                if blaster_selection.random {
+                                    blaster_selection.random = false;
+                                    blaster_selection.index = BLASTER_DEFS.len() - 1;
+                                } else if blaster_selection.index == 0 {
+                                    blaster_selection.random = true;
+                                } else {
+                                    blaster_selection.index -= 1;
+                                }
                                 blaster_selection.pending_change = true;
                             }
-                            name_box(ui, BLASTER_DEFS[blaster_selection.index].name);
+                            name_box(ui, if blaster_selection.random { "RANDOM" } else { BLASTER_DEFS[blaster_selection.index].name });
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                blaster_selection.index = (blaster_selection.index + 1) % BLASTER_DEFS.len();
+                                if blaster_selection.random {
+                                    blaster_selection.random = false;
+                                    blaster_selection.index = 0;
+                                } else if blaster_selection.index == BLASTER_DEFS.len() - 1 {
+                                    blaster_selection.random = true;
+                                } else {
+                                    blaster_selection.index += 1;
+                                }
                                 blaster_selection.pending_change = true;
                             }
                         });
@@ -138,13 +162,28 @@ fn pre_game_ui(
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                ai_enemy_count.0 = ai_enemy_count.0.saturating_sub(1);
+                                if ai_enemy_count.random {
+                                    ai_enemy_count.random = false;
+                                    ai_enemy_count.count = 10;
+                                } else if ai_enemy_count.count == 0 {
+                                    ai_enemy_count.random = true;
+                                } else {
+                                    ai_enemy_count.count -= 1;
+                                }
                             }
-                            name_box(ui, &format!("{}", ai_enemy_count.0));
+                            let opp_label = if ai_enemy_count.random { "RANDOM".to_string() } else { format!("{}", ai_enemy_count.count) };
+                            name_box(ui, &opp_label);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                ai_enemy_count.0 = (ai_enemy_count.0 + 1).min(10);
+                                if ai_enemy_count.random {
+                                    ai_enemy_count.random = false;
+                                    ai_enemy_count.count = 0;
+                                } else if ai_enemy_count.count == 10 {
+                                    ai_enemy_count.random = true;
+                                } else {
+                                    ai_enemy_count.count += 1;
+                                }
                             }
                         });
 
@@ -158,13 +197,28 @@ fn pre_game_ui(
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                max_hp.0 = max_hp.0.saturating_sub(1).max(2);
+                                if max_hp.random {
+                                    max_hp.random = false;
+                                    max_hp.hp = 10;
+                                } else if max_hp.hp == 2 {
+                                    max_hp.random = true;
+                                } else {
+                                    max_hp.hp -= 1;
+                                }
                             }
-                            name_box(ui, &format!("{}", max_hp.0));
+                            let hp_label = if max_hp.random { "RANDOM".to_string() } else { format!("{}", max_hp.hp) };
+                            name_box(ui, &hp_label);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                max_hp.0 = (max_hp.0 + 1).min(10);
+                                if max_hp.random {
+                                    max_hp.random = false;
+                                    max_hp.hp = 2;
+                                } else if max_hp.hp == 10 {
+                                    max_hp.random = true;
+                                } else {
+                                    max_hp.hp += 1;
+                                }
                             }
                         });
 
@@ -178,13 +232,27 @@ fn pre_game_ui(
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                rubber_bullets.0 = false;
+                                if rubber_bullets.random {
+                                    rubber_bullets.random = false;
+                                    rubber_bullets.enabled = true;
+                                } else if rubber_bullets.enabled {
+                                    rubber_bullets.enabled = false;
+                                } else {
+                                    rubber_bullets.random = true;
+                                }
                             }
-                            name_box(ui, if rubber_bullets.0 { "ON" } else { "OFF" });
+                            name_box(ui, if rubber_bullets.random { "RANDOM" } else if rubber_bullets.enabled { "ON" } else { "OFF" });
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
                                 egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
                             ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                rubber_bullets.0 = true;
+                                if rubber_bullets.random {
+                                    rubber_bullets.random = false;
+                                    rubber_bullets.enabled = false;
+                                } else if rubber_bullets.enabled {
+                                    rubber_bullets.random = true;
+                                } else {
+                                    rubber_bullets.enabled = true;
+                                }
                             }
                         });
                     },
@@ -200,7 +268,7 @@ fn pre_game_ui(
                     ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)),
                 );
                 if start_resp.clicked() {
-                    action.0 = 1;
+                    pending.0 = Some(GameState::Playing);
                 }
             });
         });
@@ -208,38 +276,44 @@ fn pre_game_ui(
 
 fn death_ui(
     ctx: &egui::Context,
-    action: &mut UiAction,
     outcome: &GameOutcome,
+    pending: &mut PendingState,
 ) {
-    let (title, subtitle, title_color) = if outcome.0 {
-        ("VICTORY", "All enemies eliminated!", egui::Color32::from_rgba_unmultiplied(50, 255, 50, 255))
+    let (title, subtitle) = if outcome.0 {
+        ("VICTORY", "All enemies eliminated")
     } else {
-        ("TERMINATED", "Your car was destroyed!", egui::Color32::from_rgba_unmultiplied(255, 50, 50, 255))
+        ("TERMINATED", "Your car was destroyed")
     };
+    let text_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200);
 
     egui::CentralPanel::default()
-        .frame(egui::Frame::NONE.fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200)))
+        .frame(egui::Frame {
+            fill: egui::Color32::from_rgba_unmultiplied(20, 20, 20, 255),
+            ..default()
+        })
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                ui.add_space(200.0);
-                ui.label(egui::RichText::new(title).size(48.0).color(title_color).strong());
-                ui.add_space(20.0);
-                ui.label(egui::RichText::new(subtitle).size(16.0).color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 200)));
-                ui.add_space(40.0);
-                if ui.add_sized([200.0, 42.0], egui::Button::new(
-                    egui::RichText::new("RESTART").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180))).clicked() {
-                    action.0 = 2;
+                ui.add_space(220.0);
+                ui.label(egui::RichText::new(title).size(36.0).color(text_color).weak());
+                ui.add_space(28.0);
+                ui.label(egui::RichText::new(subtitle).size(14.0).color(text_color).strong());
+                ui.add_space(48.0);
+
+                let btn = ui.add_sized(
+                    [160.0, 36.0],
+                    egui::Button::new(
+                        egui::RichText::new("RESTART").size(14.0).color(text_color),
+                    ).fill(egui::Color32::from_rgba_unmultiplied(60, 60, 60, 160)),
+                );
+                if btn.clicked() {
+                    pending.0 = Some(GameState::PreGame);
                 }
             });
         });
 }
-
 fn playing_ui(
     ctx: &egui::Context,
     telemetry: &Telemetry,
-    car_selection: &mut CarSelection,
-    blaster_selection: &mut BlasterSelection,
     keys: &ButtonInput<KeyCode>,
 ) {
     let w = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
@@ -277,41 +351,12 @@ fn playing_ui(
             });
         });
 
-    let current_name = CAR_DEFS[car_selection.index].name;
-    let car_selector_width = 130.0;
-
-    egui::Area::new("car_sel_playing".into())
-        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
-        .show(ctx, |ui| {
-            if ui.add_sized([car_selector_width, 22.0], egui::Button::new(
-                egui::RichText::new(current_name).size(12.0).color(egui::Color32::from_rgba_unmultiplied(220, 220, 220, 200)),
-            ).fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 160))).clicked() {
-                car_selection.index = (car_selection.index + 1) % CAR_DEFS.len();
-                car_selection.pending_change = true;
-            }
-        });
-
-    let blaster_name = BLASTER_DEFS[blaster_selection.index].name;
-    let blaster_select_width = 130.0;
-    let blaster_x = 136.0;
-
-    egui::Area::new("blaster_sel_playing".into())
-        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(blaster_x, -12.0))
-        .show(ctx, |ui| {
-            if ui.add_sized([blaster_select_width, 22.0], egui::Button::new(
-                egui::RichText::new(blaster_name).size(12.0).color(egui::Color32::from_rgba_unmultiplied(220, 220, 220, 200)),
-            ).fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 160))).clicked() {
-                blaster_selection.index = (blaster_selection.index + 1) % BLASTER_DEFS.len();
-                blaster_selection.pending_change = true;
-            }
-        });
-
     egui::Area::new("bottom_right_speed".into())
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
         .show(ctx, |ui| {
             egui::Frame::default()
-                .fill(egui::Color32::from_rgba_unmultiplied(40, 40, 40, 160))
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(120, 120, 120, 160)))
+                .fill(egui::Color32::from_rgba_unmultiplied(60, 60, 60, 160))
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(120, 120, 120, 120)))
                 .corner_radius(2.0)
                 .inner_margin(egui::Margin::symmetric(10, 6))
                 .show(ui, |ui| {
@@ -319,12 +364,12 @@ fn playing_ui(
                         ui.label(
                             egui::RichText::new(format!("{}", speed_ms as i32))
                                 .size(14.0)
-                                .color(egui::Color32::from_rgba_unmultiplied(160, 160, 160, 200)),
+                                .color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180)),
                         );
                         ui.label(
                             egui::RichText::new("m/s")
                                 .size(14.0)
-                                .color(egui::Color32::from_rgba_unmultiplied(160, 160, 160, 200)),
+                                .color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180)),
                         );
                     });
                 });
@@ -333,19 +378,19 @@ fn playing_ui(
 
 fn draw_key(ui: &mut egui::Ui, label: &str, pressed: bool, width: f32, height: f32) {
     let bg = if pressed {
-        egui::Color32::from_rgba_unmultiplied(100, 200, 255, 180)
+        egui::Color32::from_rgba_unmultiplied(100, 200, 255, 160)
     } else {
-        egui::Color32::from_rgba_unmultiplied(40, 40, 40, 160)
+        egui::Color32::from_rgba_unmultiplied(60, 60, 60, 160)
     };
     let fg = if pressed {
         egui::Color32::BLACK
     } else {
-        egui::Color32::from_rgba_unmultiplied(220, 220, 220, 200)
+        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180)
     };
     let radius = 2.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, radius, bg);
-    painter.rect_stroke(rect, radius, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(70, 70, 70, 160)), egui::StrokeKind::Outside);
+    painter.rect_stroke(rect, radius, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(100, 100, 100, 120)), egui::StrokeKind::Outside);
     painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(12.0), fg);
 }

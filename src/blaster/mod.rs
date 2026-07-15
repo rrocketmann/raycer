@@ -32,10 +32,23 @@ pub const BLASTER_DEFS: &[BlasterDef] = &[
     BlasterDef { name: "Blaster R", path: "models/blaster-r.glb", scale: 2.0 },
 ];
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct BlasterSelection {
     pub index: usize,
     pub pending_change: bool,
+    pub random: bool,
+}
+
+impl Default for BlasterSelection {
+    fn default() -> Self {
+        Self { index: 0, pending_change: false, random: false }
+    }
+}
+
+impl BlasterSelection {
+    pub fn display_index(&self) -> usize {
+        if self.random { 0 } else { self.index }
+    }
 }
 
 #[derive(Component)]
@@ -109,7 +122,7 @@ fn compute_pivot(
         let Ok(car_global) = car_query.single() else { continue };
         let center_car_local = car_global.affine().inverse().transform_point(center_world);
 
-        let car_def = &CAR_DEFS[car_selection.index];
+        let car_def = &CAR_DEFS[car_selection.display_index()];
         let mount = Vec3::new(0.0, mount_y(car_def.collider.y), 0.0);
         let rot = blaster_transform.rotation;
         let s = blaster_transform.scale.x;
@@ -138,7 +151,7 @@ fn aim_blaster(
     let Ok((camera, cam_global)) = camera_query.single() else { return };
     let Ok(window) = windows.single() else { return };
 
-    let car_def = &CAR_DEFS[car_selection.index];
+    let car_def = &CAR_DEFS[car_selection.display_index()];
     let mount = Vec3::new(0.0, mount_y(car_def.collider.y), 0.0);
     let s = blaster.scale.x;
     let pivot = pivot_cache.pivot.unwrap_or(Vec3::ZERO);
@@ -258,7 +271,7 @@ fn move_bullets(
             continue;
         }
 
-        if rubber_bullets.0 && transform.translation.y > SKY_BOUNDARY {
+        if rubber_bullets.enabled && transform.translation.y > SKY_BOUNDARY {
             bullet.velocity.y = -bullet.velocity.y.abs();
         }
 
@@ -291,7 +304,7 @@ fn move_bullets(
             }
             let hit_pos = prev_pos + direction * hit.distance;
             spawn_impact_effect(&mut commands, &mut meshes, &mut materials, hit_pos);
-            if rubber_bullets.0 {
+            if rubber_bullets.enabled {
                 let reflected = direction.as_vec3().reflect(hit.normal1).normalize_or_zero();
                 if let Ok(dir) = Dir3::new(reflected) {
                     bullet.velocity = dir * BULLET_SPEED;
@@ -353,8 +366,8 @@ fn switch_blaster(
         }
     }
 
-    let blaster_def = &BLASTER_DEFS[selection.index];
-    let car_def = &CAR_DEFS[car_selection.index];
+    let blaster_def = &BLASTER_DEFS[selection.display_index()];
+    let car_def = &CAR_DEFS[car_selection.display_index()];
     let mount = Vec3::new(0.0, mount_y(car_def.collider.y), 0.0);
     let scale = blaster_def.scale;
 
