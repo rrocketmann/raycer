@@ -250,7 +250,7 @@ fn ai_shoot(
             .map(|v| v.0 * travel_time * 0.9)
             .unwrap_or(Vec3::ZERO);
         let mut rng = rand::rng();
-        let aim_point = target_pos + lead + Vec3::new(rng.random_range(-1.5..1.5), rng.random_range(-1.0..1.0), rng.random_range(-1.5..1.5));
+        let aim_point = target_pos + lead + Vec3::new(rng.random_range(-0.4..0.4), rng.random_range(-0.3..0.3), rng.random_range(-0.4..0.4));
 
         let Ok(children) = children_query.get(ai_entity) else { continue };
         let mut blaster_pos = ai_global.translation();

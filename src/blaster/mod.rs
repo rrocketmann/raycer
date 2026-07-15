@@ -82,7 +82,7 @@ struct AimInfo {
 #[derive(Component)]
 pub struct ShootCooldown(pub Timer);
 
-pub const BULLET_SPEED: f32 = 50.0;
+pub const BULLET_SPEED: f32 = 80.0;
 pub const BULLET_RADIUS: f32 = 0.5;
 pub const BULLET_LIFETIME_SECS: f32 = 5.0;
 
