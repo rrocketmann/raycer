@@ -103,6 +103,7 @@ fn check_game_state(
     player_query: Query<(Entity, &Health, &Position), With<PlayerCar>>,
     ai_query: Query<(), With<AiCar>>,
     exploding_query: Query<&ExplosionTimer>,
+    enemy_count: Res<AiEnemyCount>,
 ) {
     for (entity, health, pos) in player_query.iter() {
         if pos.0.y < -20.0 {
@@ -126,7 +127,7 @@ fn check_game_state(
             return;
         }
     }
-    if ai_query.iter().count() == 0 {
+    if enemy_count.count > 0 && ai_query.iter().count() == 0 {
         for (_, player_health, _) in player_query.iter() {
             if player_health.0 > 0 {
                 outcome.0 = true;

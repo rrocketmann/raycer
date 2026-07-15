@@ -227,7 +227,7 @@ pub fn spawn_bullet(
 ) {
     commands.spawn((
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bullet.glb"))),
-        Transform::from_translation(position).with_scale(Vec3::splat(0.8)),
+        Transform::from_translation(position).with_scale(Vec3::splat(3.0)),
         Bullet {
             velocity: direction * BULLET_SPEED,
             lifetime: Timer::from_seconds(BULLET_LIFETIME_SECS, TimerMode::Once),
