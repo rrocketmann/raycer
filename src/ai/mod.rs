@@ -26,7 +26,7 @@ struct AiConfig {
 }
 
 #[derive(Component)]
-struct AiShootCooldown(pub f32);
+struct AiWeaponCharge(pub f32);
 
 pub struct AiPlugin;
 
@@ -96,7 +96,7 @@ fn spawn_ai_cars(
 
         commands.entity(ai_root).insert((
             GravityScale(1.0),
-            AiShootCooldown(0.0),
+            AiWeaponCharge(0.0),
             AiConfig { car_index, blaster_index },
         ));
 
@@ -218,7 +218,7 @@ fn ai_aim_blaster(
 
 fn ai_shoot(
     time: Res<Time>,
-    mut ai_query: Query<(Entity, &GlobalTransform, &AiConfig, &mut AiShootCooldown), With<AiCar>>,
+    mut ai_query: Query<(Entity, &GlobalTransform, &AiConfig, &mut AiWeaponCharge), With<AiCar>>,
     player_query: Query<(Entity, &GlobalTransform), With<PlayerCar>>,
     velocities: Query<&LinearVelocity>,
     blaster_global_query: Query<&GlobalTransform, With<AiBlasterVisual>>,
@@ -229,14 +229,11 @@ fn ai_shoot(
     let Ok((player_entity, player_global)) = player_query.single() else { return };
     let target_pos = player_global.translation();
 
-    for (ai_entity, ai_global, ai_config, mut cooldown) in ai_query.iter_mut() {
-        if cooldown.0 > 0.0 {
-            cooldown.0 -= time.delta_secs();
-            continue;
-        }
-
+    for (ai_entity, ai_global, ai_config, mut charge) in ai_query.iter_mut() {
         let blaster_def = &BLASTER_DEFS[ai_config.blaster_index];
-        cooldown.0 = blaster_def.cooldown;
+        charge.0 = (charge.0 + blaster_def.reload_speed * time.delta_secs()).min(blaster_def.capacity);
+        if charge.0 < 1.0 { continue; }
+        charge.0 -= 1.0;
 
         let distance = (target_pos - ai_global.translation()).length();
         let travel_time = distance / BULLET_SPEED;
@@ -266,12 +263,12 @@ fn ai_shoot(
 
         match &blaster_def.blaster_type {
             crate::blaster::BlasterType::Single | crate::blaster::BlasterType::Sniper => {
-                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, blaster_def.damage, blaster_def.cooldown, exclude);
+                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, blaster_def.damage, exclude);
             }
             crate::blaster::BlasterType::Double => {
                 let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
-                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos + right * 0.3, base_dir, blaster_def.damage, blaster_def.cooldown, exclude.clone());
-                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos - right * 0.3, base_dir, blaster_def.damage, blaster_def.cooldown, exclude);
+                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos + right * 0.3, base_dir, blaster_def.damage, exclude.clone());
+                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos - right * 0.3, base_dir, blaster_def.damage, exclude);
             }
             crate::blaster::BlasterType::Shotgun { pellets, spread } => {
                 let pellets = *pellets;
@@ -279,13 +276,13 @@ fn ai_shoot(
                 for _ in 0..pellets {
                     let s = Vec3::new(rng.random_range(-spread..spread), rng.random_range(-spread..spread), rng.random_range(-spread..spread));
                     let dir = (base_dir + s).normalize_or(base_dir);
-                    crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, dir, blaster_def.damage, blaster_def.cooldown, exclude.clone());
+                    crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, dir, blaster_def.damage, exclude.clone());
                 }
             }
             crate::blaster::BlasterType::Burst { count, .. } => {
                 let count = *count;
                 for _ in 0..count {
-                    crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, blaster_def.damage, blaster_def.cooldown, exclude.clone());
+                    crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, blaster_def.damage, exclude.clone());
                 }
             }
         }

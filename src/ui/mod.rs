@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::car::{CarSelection, Telemetry, CAR_DEFS};
-use crate::blaster::{BlasterSelection, BLASTER_DEFS};
+use crate::blaster::{BlasterSelection, WeaponCharge, BLASTER_DEFS};
 use crate::GameState;
 use crate::AiEnemyCount;
 use crate::RubberBullets;
@@ -30,6 +30,7 @@ fn egui_panel(
     mut max_hp: ResMut<MaxHealthPoints>,
     outcome: Res<GameOutcome>,
     mut pending: ResMut<PendingState>,
+    charge: Res<WeaponCharge>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -42,7 +43,7 @@ fn egui_panel(
             pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut rubber_bullets, &mut max_hp, &mut *pending);
         }
         GameState::Playing => {
-            playing_ui(ctx, &telemetry, &keys);
+            playing_ui(ctx, &telemetry, &keys, &charge, &blaster_selection);
         }
         GameState::Eliminated => {
             death_ui(ctx, &outcome, &mut *pending);
@@ -315,6 +316,8 @@ fn playing_ui(
     ctx: &egui::Context,
     telemetry: &Telemetry,
     keys: &ButtonInput<KeyCode>,
+    charge: &WeaponCharge,
+    blaster_selection: &BlasterSelection,
 ) {
     let w = keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp);
     let a = keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft);
@@ -326,6 +329,8 @@ fn playing_ui(
     let e = keys.pressed(KeyCode::KeyE);
 
     let speed_ms = telemetry.speed_history.last().copied().unwrap_or(0.0);
+    let def = &BLASTER_DEFS[blaster_selection.display_index()];
+    let charge_ratio = (charge.0 / def.capacity).min(1.0);
 
     let key_w = 28.0;
     let key_h = 28.0;
@@ -373,6 +378,27 @@ fn playing_ui(
                         );
                     });
                 });
+        });
+
+    egui::Area::new("weapon_charge".into())
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
+        .show(ctx, |ui| {
+            let bar_w = 120.0;
+            let bar_h = 4.0;
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
+            let painter = ui.painter();
+            painter.rect_filled(rect, 2.0, egui::Color32::from_rgba_unmultiplied(60, 60, 60, 160));
+            if charge_ratio > 0.0 {
+                let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(bar_w * charge_ratio, bar_h));
+                let fill_color = if charge_ratio < 0.3 {
+                    egui::Color32::from_rgba_unmultiplied(255, 80, 80, 200)
+                } else if charge_ratio < 0.6 {
+                    egui::Color32::from_rgba_unmultiplied(255, 200, 50, 200)
+                } else {
+                    egui::Color32::from_rgba_unmultiplied(80, 255, 80, 200)
+                };
+                painter.rect_filled(fill_rect, 2.0, fill_color);
+            }
         });
 }
 

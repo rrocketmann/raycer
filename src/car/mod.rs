@@ -212,21 +212,21 @@ fn update_explosions(
             continue;
         }
         let mut rng = rand::rng();
-        for _ in 0..5 {
+        for _ in 0..3 {
             let dir = Vec3::new(
-                rng.random_range(-1.0..1.0),
-                rng.random_range(0.0..1.0),
-                rng.random_range(-1.0..1.0),
+                rng.random_range(-0.3..0.3),
+                rng.random_range(0.0..0.3),
+                rng.random_range(-0.3..0.3),
             ).normalize_or(Vec3::Y);
-            let speed = rng.random_range(5.0..20.0);
+            let speed = rng.random_range(1.0..3.0);
             commands.spawn((
                 SceneRoot(smoke.clone()),
                 Transform::from_translation(transform.translation())
-                    .with_scale(Vec3::splat(rng.random_range(0.5..1.5)))
+                    .with_scale(Vec3::splat(rng.random_range(2.0..4.0)))
                     .with_rotation(Quat::from_rotation_y(rng.random_range(0.0..std::f32::consts::TAU))),
                 ExplosionParticle {
                     velocity: dir * speed,
-                    lifetime: Timer::from_seconds(rng.random_range(0.3..0.8), TimerMode::Once),
+                    lifetime: Timer::from_seconds(rng.random_range(0.8..1.5), TimerMode::Once),
                 },
             ));
         }

@@ -20,17 +20,18 @@ pub struct BlasterDef {
     pub path: &'static str,
     pub scale: f32,
     pub blaster_type: BlasterType,
-    pub cooldown: f32,
+    pub capacity: f32,
+    pub reload_speed: f32,
     pub damage: u8,
 }
 
 pub const BLASTER_DEFS: &[BlasterDef] = &[
-    BlasterDef { name: "Pistol",    path: "models/small pistol.glb",                scale: 2.0, blaster_type: BlasterType::Single,   cooldown: 0.25, damage: 1 },
-    BlasterDef { name: "SMG",       path: "models/some smg.glb",                    scale: 2.0, blaster_type: BlasterType::Single,   cooldown: 0.08, damage: 1 },
-    BlasterDef { name: "Shotgun",   path: "models/dual barrel shotgun.glb",         scale: 2.0, blaster_type: BlasterType::Shotgun { pellets: 4, spread: 0.15 }, cooldown: 0.5, damage: 1 },
-    BlasterDef { name: "Sniper",    path: "models/really big sniper rifle.glb",     scale: 2.0, blaster_type: BlasterType::Sniper,   cooldown: 1.0,  damage: 3 },
-    BlasterDef { name: "Quad",      path: "models/quadruple barel pistol, look sreally cool.glb", scale: 2.0, blaster_type: BlasterType::Shotgun { pellets: 4, spread: 0.25 }, cooldown: 0.45, damage: 1 },
-    BlasterDef { name: "Rifle",     path: "models/maybe ar.glb",                    scale: 2.0, blaster_type: BlasterType::Burst { count: 3, interval: 0.06 },  cooldown: 0.35, damage: 1 },
+    BlasterDef { name: "Pistol",    path: "models/small pistol.glb",                scale: 3.5, blaster_type: BlasterType::Single,                 capacity: 3.0, reload_speed: 5.0,  damage: 1 },
+    BlasterDef { name: "SMG",       path: "models/some smg.glb",                    scale: 3.5, blaster_type: BlasterType::Single,                 capacity: 5.0, reload_speed: 8.0,  damage: 1 },
+    BlasterDef { name: "Shotgun",   path: "models/dual barrel shotgun.glb",         scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.12 }, capacity: 2.0, reload_speed: 2.0, damage: 1 },
+    BlasterDef { name: "Sniper",    path: "models/really big sniper rifle.glb",     scale: 3.5, blaster_type: BlasterType::Sniper,                 capacity: 1.0, reload_speed: 1.5,  damage: 3 },
+    BlasterDef { name: "Quad",      path: "models/quadruple barel pistol, look sreally cool.glb", scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.2 }, capacity: 2.0, reload_speed: 2.0, damage: 1 },
+    BlasterDef { name: "Rifle",     path: "models/maybe ar.glb",                    scale: 3.5, blaster_type: BlasterType::Burst { count: 3, interval: 0.06 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
 ];
 
 #[derive(Resource)]
@@ -85,6 +86,9 @@ pub const BULLET_SPEED: f32 = 80.0;
 pub const BULLET_RADIUS: f32 = 0.5;
 pub const BULLET_LIFETIME_SECS: f32 = 5.0;
 
+#[derive(Resource, Default)]
+pub struct WeaponCharge(pub f32);
+
 pub struct BlasterPlugin;
 
 impl Plugin for BlasterPlugin {
@@ -92,6 +96,7 @@ impl Plugin for BlasterPlugin {
         app.init_resource::<BlasterSelection>()
             .init_resource::<PivotCache>()
             .init_resource::<AimInfo>()
+            .init_resource::<WeaponCharge>()
             .add_systems(Update, (
                 switch_blaster,
                 compute_pivot,
@@ -218,12 +223,11 @@ pub fn spawn_bullet(
     position: Vec3,
     direction: Vec3,
     damage: u8,
-    _cooldown: f32,
     exclude: HashSet<Entity>,
 ) {
     commands.spawn((
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bullet.glb"))),
-        Transform::from_translation(position).with_scale(Vec3::splat(0.3)),
+        Transform::from_translation(position).with_scale(Vec3::splat(0.8)),
         Bullet {
             velocity: direction * BULLET_SPEED,
             lifetime: Timer::from_seconds(BULLET_LIFETIME_SECS, TimerMode::Once),
@@ -240,21 +244,17 @@ fn player_shoot(
     blaster_query: Query<&GlobalTransform, With<BlasterVisual>>,
     car_query: Query<Entity, With<PlayerCar>>,
     children_query: Query<&Children>,
-    mut cooldown: Local<f32>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     blaster_selection: Res<BlasterSelection>,
+    mut charge: ResMut<WeaponCharge>,
 ) {
     let def = &BLASTER_DEFS[blaster_selection.display_index()];
 
-    if *cooldown > 0.0 {
-        *cooldown -= time.delta_secs();
-        return;
-    }
+    charge.0 = (charge.0 + def.reload_speed * time.delta_secs()).min(def.capacity);
 
-    if !mouse_buttons.pressed(MouseButton::Left) {
-        return;
-    }
+    if charge.0 < 1.0 { return; }
+    if !mouse_buttons.pressed(MouseButton::Left) { return; }
 
     let Ok(blaster_global) = blaster_query.single() else { return };
     let Some(aim_point) = aim_info.aim_point else { return };
@@ -270,16 +270,16 @@ fn player_shoot(
         exclude.insert(desc);
     }
 
-    *cooldown = def.cooldown;
+    charge.0 -= 1.0;
 
     match &def.blaster_type {
         BlasterType::Single | BlasterType::Sniper => {
-            spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, def.damage, def.cooldown, exclude);
+            spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, def.damage, exclude);
         }
         BlasterType::Double => {
             let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
-            spawn_bullet(&mut commands, &asset_server, spawn_pos + right * 0.3, base_dir, def.damage, def.cooldown, exclude.clone());
-            spawn_bullet(&mut commands, &asset_server, spawn_pos - right * 0.3, base_dir, def.damage, def.cooldown, exclude);
+            spawn_bullet(&mut commands, &asset_server, spawn_pos + right * 0.3, base_dir, def.damage, exclude.clone());
+            spawn_bullet(&mut commands, &asset_server, spawn_pos - right * 0.3, base_dir, def.damage, exclude);
         }
         BlasterType::Shotgun { pellets, spread } => {
             let pellets = *pellets;
@@ -288,13 +288,13 @@ fn player_shoot(
             for _ in 0..pellets {
                 let s = Vec3::new(rng.random_range(-spread..spread), rng.random_range(-spread..spread), rng.random_range(-spread..spread));
                 let dir = (base_dir + s).normalize_or(base_dir);
-                spawn_bullet(&mut commands, &asset_server, spawn_pos, dir, def.damage, def.cooldown, exclude.clone());
+                spawn_bullet(&mut commands, &asset_server, spawn_pos, dir, def.damage, exclude.clone());
             }
         }
         BlasterType::Burst { count, .. } => {
             let count = *count;
             for _ in 0..count {
-                spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, def.damage, def.cooldown, exclude.clone());
+                spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, def.damage, exclude.clone());
             }
         }
     }
@@ -397,21 +397,21 @@ pub fn spawn_smoke_effect(
 ) {
     let smoke = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/smoke.glb"));
     let mut rng = rand::rng();
-    for _ in 0..count {
+    for _ in 0..count.min(3) {
         let dir = Vec3::new(
-            rng.random_range(-1.0..1.0),
-            rng.random_range(0.0..1.0),
-            rng.random_range(-1.0..1.0),
+            rng.random_range(-0.5..0.5),
+            rng.random_range(0.0..0.5),
+            rng.random_range(-0.5..0.5),
         ).normalize_or(Vec3::Y);
-        let speed = rng.random_range(3.0..12.0);
+        let speed = rng.random_range(1.0..4.0);
         commands.spawn((
             SceneRoot(smoke.clone()),
             Transform::from_translation(position)
-                .with_scale(Vec3::splat(rng.random_range(0.3..0.8)))
+                .with_scale(Vec3::splat(rng.random_range(1.5..3.0)))
                 .with_rotation(Quat::from_rotation_y(rng.random_range(0.0..std::f32::consts::TAU))),
             crate::car::ExplosionParticle {
                 velocity: dir * speed,
-                lifetime: Timer::from_seconds(rng.random_range(0.3..0.8), TimerMode::Once),
+                lifetime: Timer::from_seconds(rng.random_range(0.5..1.0), TimerMode::Once),
             },
         ));
     }
