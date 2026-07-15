@@ -412,17 +412,19 @@ fn ai_drive(
 
         ang_vel.0 = Vec3::Y * angle_to_target * 4.0;
 
-        let speed_factor = (1.0 - angle_to_target.abs() / std::f32::consts::PI * 0.8).max(0.2);
+        let normalized_angle = angle_to_target.abs() / std::f32::consts::PI;
+        let speed_factor = (0.5 - normalized_angle) * 2.0 * boredom;
         let target_speed = 45.0 * speed_factor;
 
         let current_vel = lin_vel.0;
         let current_flat = Vec3::new(current_vel.x, 0.0, current_vel.z);
-        let current_speed = current_flat.dot(flat_forward);
+        let forward_dir = if target_speed >= 0.0 { flat_forward } else { -flat_forward };
+        let current_speed = current_flat.dot(forward_dir);
 
-        let accel = (target_speed - current_speed) * (5.0 * dt).min(1.0);
+        let accel = (target_speed.abs() - current_speed) * (5.0 * dt).min(1.0);
         let new_speed = current_speed + accel;
 
-        lin_vel.0 = flat_forward * new_speed + Vec3::new(0.0, current_vel.y, 0.0);
+        lin_vel.0 = forward_dir * new_speed + Vec3::new(0.0, current_vel.y, 0.0);
     }
 }
 
