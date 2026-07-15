@@ -78,8 +78,6 @@ impl Plugin for CarPlugin {
                     label_wheels,
                     animate_wheels,
                     record_telemetry,
-                    respawn_car,
-                    respawn_hit_cars,
                     switch_car_model,
                 ).run_if(in_state(GameState::Playing)),
             )
@@ -875,52 +873,6 @@ fn record_telemetry(
         return;
     };
     telemetry.record(car.speed, wheel_state.current_angle, car.yaw);
-}
-
-#[derive(Component)]
-pub struct RespawnCar {
-    pub spawn_pos: Vec3,
-}
-
-fn respawn_car(
-    mut player_query: Query<(&mut Position, &mut Health), With<PlayerCar>>,
-    mut ai_query: Query<(&mut Position, &mut Health), (With<AiCar>, Without<PlayerCar>)>,
-) {
-    for (pos, mut health) in player_query.iter_mut() {
-        if pos.0.y < -20.0 {
-            health.0 = 0;
-        }
-    }
-    for (pos, mut health) in ai_query.iter_mut() {
-        if pos.0.y < -20.0 {
-            health.0 = 0;
-        }
-    }
-}
-
-fn respawn_hit_cars(
-    mut commands: Commands,
-    query: Query<(Entity, &RespawnCar)>,
-    mut pos_query: Query<&mut Position>,
-    mut rot_query: Query<&mut Rotation>,
-    mut linvel_query: Query<&mut LinearVelocity>,
-    mut angvel_query: Query<&mut AngularVelocity>,
-) {
-    for (entity, respawn) in query.iter() {
-        if let Ok(mut pos) = pos_query.get_mut(entity) {
-            pos.0 = respawn.spawn_pos;
-        }
-        if let Ok(mut rot) = rot_query.get_mut(entity) {
-            rot.0 = Quat::IDENTITY;
-        }
-        if let Ok(mut lin_vel) = linvel_query.get_mut(entity) {
-            lin_vel.0 = Vec3::ZERO;
-        }
-        if let Ok(mut ang_vel) = angvel_query.get_mut(entity) {
-            ang_vel.0 = Vec3::ZERO;
-        }
-        commands.entity(entity).remove::<RespawnCar>();
-    }
 }
 
 #[derive(Component)]

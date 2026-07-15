@@ -103,11 +103,21 @@ fn check_game_state(
     mut commands: Commands,
     mut pending: ResMut<PendingState>,
     mut outcome: ResMut<GameOutcome>,
-    player_query: Query<(Entity, &Health), With<PlayerCar>>,
+    player_query: Query<(Entity, &Health, &Position), With<PlayerCar>>,
     ai_query: Query<(), With<AiCar>>,
     exploding_query: Query<&ExplosionTimer>,
 ) {
-    for (entity, health) in player_query.iter() {
+    for (entity, health, pos) in player_query.iter() {
+        if pos.0.y < -20.0 {
+            outcome.0 = false;
+            commands.entity(entity).insert((
+                ExplosionTimer(Timer::from_seconds(0.4, TimerMode::Once)),
+                LinearVelocity::ZERO,
+                AngularVelocity::ZERO,
+            ));
+            pending.0 = Some(GameState::Eliminated);
+            return;
+        }
         if health.0 == 0 && exploding_query.get(entity).is_err() {
             outcome.0 = false;
             commands.entity(entity).insert((
@@ -119,7 +129,7 @@ fn check_game_state(
             return;
         }
     }
-    if let Ok((_, player_health)) = player_query.single() {
+    if let Ok((_, player_health, _)) = player_query.single() {
         if player_health.0 > 0 && ai_query.iter().count() == 0 {
             outcome.0 = true;
             pending.0 = Some(GameState::Eliminated);

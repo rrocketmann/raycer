@@ -510,11 +510,11 @@ fn ai_shoot(
 
 fn despawn_dead_cars(
     mut commands: Commands,
-    ai_query: Query<(Entity, &Health), With<AiCar>>,
+    ai_query: Query<(Entity, &Health, &Position), With<AiCar>>,
     exploding_query: Query<&ExplosionTimer>,
 ) {
-    for (entity, health) in ai_query.iter() {
-        if health.0 == 0 && exploding_query.get(entity).is_err() {
+    for (entity, health, pos) in ai_query.iter() {
+        if pos.0.y < -20.0 || (health.0 == 0 && exploding_query.get(entity).is_err()) {
             commands.entity(entity).insert((
                 ExplosionTimer(Timer::from_seconds(0.4, TimerMode::Once)),
                 LinearVelocity::ZERO,
