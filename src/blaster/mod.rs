@@ -219,15 +219,23 @@ fn aim_blaster(
 
 pub fn spawn_bullet(
     commands: &mut Commands,
-    asset_server: &Res<AssetServer>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
     position: Vec3,
     direction: Vec3,
     damage: u8,
     exclude: HashSet<Entity>,
+    color: Srgba,
+    emissive: LinearRgba,
 ) {
     commands.spawn((
-        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bullet.glb"))),
-        Transform::from_translation(position).with_scale(Vec3::splat(3.0)),
+        Mesh3d(meshes.add(Sphere::new(0.8).mesh().ico(2).unwrap())),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: color.into(),
+            emissive,
+            ..default()
+        })),
+        Transform::from_translation(position),
         Bullet {
             velocity: direction * BULLET_SPEED,
             lifetime: Timer::from_seconds(BULLET_LIFETIME_SECS, TimerMode::Once),
@@ -245,7 +253,8 @@ fn player_shoot(
     car_query: Query<Entity, With<PlayerCar>>,
     children_query: Query<&Children>,
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     blaster_selection: Res<BlasterSelection>,
     mut charge: ResMut<WeaponCharge>,
 ) {
@@ -272,14 +281,17 @@ fn player_shoot(
 
     charge.0 -= 1.0;
 
+    let color = Srgba::hex("ff0000").unwrap();
+    let emissive = LinearRgba::new(8.0, 0.0, 0.0, 1.0);
+
     match &def.blaster_type {
         BlasterType::Single | BlasterType::Sniper => {
-            spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, def.damage, exclude);
+            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, def.damage, exclude, color, emissive);
         }
         BlasterType::Double => {
             let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
-            spawn_bullet(&mut commands, &asset_server, spawn_pos + right * 0.3, base_dir, def.damage, exclude.clone());
-            spawn_bullet(&mut commands, &asset_server, spawn_pos - right * 0.3, base_dir, def.damage, exclude);
+            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos + right * 0.3, base_dir, def.damage, exclude.clone(), color, emissive);
+            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos - right * 0.3, base_dir, def.damage, exclude, color, emissive);
         }
         BlasterType::Shotgun { pellets, spread } => {
             let pellets = *pellets;
@@ -288,13 +300,13 @@ fn player_shoot(
             for _ in 0..pellets {
                 let s = Vec3::new(rng.random_range(-spread..spread), rng.random_range(-spread..spread), rng.random_range(-spread..spread));
                 let dir = (base_dir + s).normalize_or(base_dir);
-                spawn_bullet(&mut commands, &asset_server, spawn_pos, dir, def.damage, exclude.clone());
+                spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, dir, def.damage, exclude.clone(), color, emissive);
             }
         }
         BlasterType::Burst { count, .. } => {
             let count = *count;
             for _ in 0..count {
-                spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, def.damage, exclude.clone());
+                spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, def.damage, exclude.clone(), color, emissive);
             }
         }
     }
@@ -310,7 +322,8 @@ fn move_bullets(
     mut health_query: Query<&mut Health>,
     rubber_bullets: Res<RubberBullets>,
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (entity, mut transform, mut bullet, exclude_ray) in bullet_query.iter_mut() {
         bullet.lifetime.tick(time.delta());
@@ -351,7 +364,7 @@ fn move_bullets(
                 continue;
             }
             let hit_pos = prev_pos + direction * hit.distance;
-            spawn_smoke_effect(&mut commands, &asset_server, hit_pos, 3);
+            spawn_smoke_effect(&mut commands, &mut meshes, &mut materials, hit_pos, 3);
             if rubber_bullets.enabled {
                 let reflected = direction.as_vec3().reflect(hit.normal1).normalize_or_zero();
                 if let Ok(dir) = Dir3::new(reflected) {
@@ -391,11 +404,11 @@ fn find_car_ancestor(
 
 pub fn spawn_smoke_effect(
     commands: &mut Commands,
-    asset_server: &Res<AssetServer>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
     position: Vec3,
     count: u32,
 ) {
-    let smoke = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/smoke.glb"));
     let mut rng = rand::rng();
     for _ in 0..count.min(3) {
         let dir = Vec3::new(
@@ -405,10 +418,13 @@ pub fn spawn_smoke_effect(
         ).normalize_or(Vec3::Y);
         let speed = rng.random_range(1.0..4.0);
         commands.spawn((
-            SceneRoot(smoke.clone()),
-            Transform::from_translation(position)
-                .with_scale(Vec3::splat(rng.random_range(1.5..3.0)))
-                .with_rotation(Quat::from_rotation_y(rng.random_range(0.0..std::f32::consts::TAU))),
+            Mesh3d(meshes.add(Sphere::new(0.5).mesh().ico(1).unwrap())),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Srgba::hex("ff6600").unwrap().into(),
+                emissive: LinearRgba::new(2.0, 1.0, 0.0, 1.0),
+                ..default()
+            })),
+            Transform::from_translation(position),
             crate::car::ExplosionParticle {
                 velocity: dir * speed,
                 lifetime: Timer::from_seconds(rng.random_range(0.5..1.0), TimerMode::Once),

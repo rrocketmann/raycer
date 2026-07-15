@@ -224,10 +224,13 @@ fn ai_shoot(
     blaster_global_query: Query<&GlobalTransform, With<AiBlasterVisual>>,
     children_query: Query<&Children>,
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let Ok((player_entity, player_global)) = player_query.single() else { return };
     let target_pos = player_global.translation();
+    let color = Srgba::hex("ff4400").unwrap();
+    let emissive = LinearRgba::new(6.0, 1.0, 0.0, 1.0);
 
     for (ai_entity, ai_global, ai_config, mut charge) in ai_query.iter_mut() {
         let blaster_def = &BLASTER_DEFS[ai_config.blaster_index];
@@ -263,12 +266,12 @@ fn ai_shoot(
 
         match &blaster_def.blaster_type {
             crate::blaster::BlasterType::Single | crate::blaster::BlasterType::Sniper => {
-                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, blaster_def.damage, exclude);
+                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, blaster_def.damage, exclude, color, emissive);
             }
             crate::blaster::BlasterType::Double => {
                 let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
-                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos + right * 0.3, base_dir, blaster_def.damage, exclude.clone());
-                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos - right * 0.3, base_dir, blaster_def.damage, exclude);
+                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos + right * 0.3, base_dir, blaster_def.damage, exclude.clone(), color, emissive);
+                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos - right * 0.3, base_dir, blaster_def.damage, exclude, color, emissive);
             }
             crate::blaster::BlasterType::Shotgun { pellets, spread } => {
                 let pellets = *pellets;
@@ -276,13 +279,13 @@ fn ai_shoot(
                 for _ in 0..pellets {
                     let s = Vec3::new(rng.random_range(-spread..spread), rng.random_range(-spread..spread), rng.random_range(-spread..spread));
                     let dir = (base_dir + s).normalize_or(base_dir);
-                    crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, dir, blaster_def.damage, exclude.clone());
+                    crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, dir, blaster_def.damage, exclude.clone(), color, emissive);
                 }
             }
             crate::blaster::BlasterType::Burst { count, .. } => {
                 let count = *count;
                 for _ in 0..count {
-                    crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, blaster_def.damage, exclude.clone());
+                    crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, blaster_def.damage, exclude.clone(), color, emissive);
                 }
             }
         }
@@ -292,7 +295,8 @@ fn ai_shoot(
 fn damage_smoke(
     mut commands: Commands,
     mut car_query: Query<(Entity, &Health, &mut DamageTracker, &GlobalTransform), (With<AiCar>, Without<PlayerCar>)>,
-    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     max_hp: Res<MaxHealthPoints>,
 ) {
     for (_entity, health, mut tracker, transform) in car_query.iter_mut() {
@@ -301,7 +305,7 @@ fn damage_smoke(
             let new_damage = damage_taken - tracker.total_damage_taken;
             tracker.total_damage_taken = damage_taken;
             let smoke_count = (new_damage as u32) * 3;
-            spawn_smoke_effect(&mut commands, &asset_server, transform.translation(), smoke_count);
+            spawn_smoke_effect(&mut commands, &mut meshes, &mut materials, transform.translation(), smoke_count);
         }
     }
 }
