@@ -220,7 +220,7 @@ fn update_explosions(
             ).normalize_or(Vec3::Y);
             let speed = rng.random_range(2.0..6.0);
             commands.spawn((
-                Mesh3d(meshes.add(Sphere::new(0.2).mesh().ico(1).unwrap())),
+                Mesh3d(meshes.add(Sphere::new(0.3).mesh().ico(1).unwrap())),
                 MeshMaterial3d(materials.add(StandardMaterial {
                     base_color: Srgba::hex("ff6600").unwrap().into(),
                     emissive: LinearRgba::new(4.0, 2.0, 0.0, 1.0),
