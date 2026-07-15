@@ -235,8 +235,14 @@ fn ai_shoot(
     for (ai_entity, ai_global, ai_config, mut charge) in ai_query.iter_mut() {
         let blaster_def = &BLASTER_DEFS[ai_config.blaster_index];
         charge.0 = (charge.0 + blaster_def.reload_speed * time.delta_secs()).min(blaster_def.capacity);
-        if charge.0 < 1.0 { continue; }
-        charge.0 -= 1.0;
+        let shot_cost = match &blaster_def.blaster_type {
+            crate::blaster::BlasterType::Single | crate::blaster::BlasterType::Sniper => 1.0,
+            crate::blaster::BlasterType::Double => 2.0,
+            crate::blaster::BlasterType::Shotgun { pellets, .. } => *pellets as f32,
+            crate::blaster::BlasterType::Burst { count, .. } => *count as f32,
+        };
+        if charge.0 < shot_cost { continue; }
+        charge.0 -= shot_cost;
 
         let distance = (target_pos - ai_global.translation()).length();
         let travel_time = distance / BULLET_SPEED;

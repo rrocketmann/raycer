@@ -381,24 +381,20 @@ fn playing_ui(
         });
 
     egui::Area::new("weapon_charge".into())
-        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -16.0))
         .show(ctx, |ui| {
-            let bar_w = 120.0;
-            let bar_h = 4.0;
+            let bar_w = 200.0;
+            let bar_h = 10.0;
             let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
             let painter = ui.painter();
-            painter.rect_filled(rect, 2.0, egui::Color32::from_rgba_unmultiplied(60, 60, 60, 160));
+            let bg = egui::Color32::from_rgba_unmultiplied(30, 30, 30, 200);
+            let fg = egui::Color32::from_rgba_unmultiplied(220, 220, 220, 220);
+            painter.rect_filled(rect, 2.0, bg);
             if charge_ratio > 0.0 {
                 let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(bar_w * charge_ratio, bar_h));
-                let fill_color = if charge_ratio < 0.3 {
-                    egui::Color32::from_rgba_unmultiplied(255, 80, 80, 200)
-                } else if charge_ratio < 0.6 {
-                    egui::Color32::from_rgba_unmultiplied(255, 200, 50, 200)
-                } else {
-                    egui::Color32::from_rgba_unmultiplied(80, 255, 80, 200)
-                };
-                painter.rect_filled(fill_rect, 2.0, fill_color);
+                painter.rect_filled(fill_rect, 2.0, fg);
             }
+            painter.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(100, 100, 100, 160)), egui::StrokeKind::Outside);
         });
 }
 

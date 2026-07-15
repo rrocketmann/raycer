@@ -262,7 +262,6 @@ fn player_shoot(
 
     charge.0 = (charge.0 + def.reload_speed * time.delta_secs()).min(def.capacity);
 
-    if charge.0 < 1.0 { return; }
     if !mouse_buttons.pressed(MouseButton::Left) { return; }
 
     let Ok(blaster_global) = blaster_query.single() else { return };
@@ -279,10 +278,17 @@ fn player_shoot(
         exclude.insert(desc);
     }
 
-    charge.0 -= 1.0;
-
     let color = Srgba::hex("ff0000").unwrap();
     let emissive = LinearRgba::new(8.0, 0.0, 0.0, 1.0);
+    let shot_cost = match &def.blaster_type {
+        BlasterType::Single | BlasterType::Sniper => 1.0,
+        BlasterType::Double => 2.0,
+        BlasterType::Shotgun { pellets, .. } => *pellets as f32,
+        BlasterType::Burst { count, .. } => *count as f32,
+    };
+
+    if charge.0 < shot_cost { return; }
+    charge.0 -= shot_cost;
 
     match &def.blaster_type {
         BlasterType::Single | BlasterType::Sniper => {
