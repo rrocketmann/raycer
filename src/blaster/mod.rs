@@ -1,35 +1,36 @@
 use std::collections::HashSet;
 use bevy::prelude::*;
 use avian3d::prelude::{Collider, SpatialQuery, ShapeCastConfig, SpatialQueryFilter};
-use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health, SKY_BOUNDARY, spawn_impact_effect};
+use rand::Rng;
+use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health, SKY_BOUNDARY};
 use crate::GameState;
 use crate::RubberBullets;
+
+#[derive(Clone)]
+pub enum BlasterType {
+    Single,
+    Double,
+    Shotgun { pellets: u32, spread: f32 },
+    Burst { count: u32, interval: f32 },
+    Sniper,
+}
 
 pub struct BlasterDef {
     pub name: &'static str,
     pub path: &'static str,
     pub scale: f32,
+    pub blaster_type: BlasterType,
+    pub cooldown: f32,
+    pub damage: u8,
 }
 
 pub const BLASTER_DEFS: &[BlasterDef] = &[
-    BlasterDef { name: "Blaster A", path: "models/blaster-a.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster B", path: "models/blaster-b.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster C", path: "models/blaster-c.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster D", path: "models/blaster-d.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster E", path: "models/blaster-e.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster F", path: "models/blaster-f.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster G", path: "models/blaster-g.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster H", path: "models/blaster-h.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster I", path: "models/blaster-i.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster J", path: "models/blaster-j.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster K", path: "models/blaster-k.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster L", path: "models/blaster-l.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster M", path: "models/blaster-m.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster N", path: "models/blaster-n.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster O", path: "models/blaster-o.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster P", path: "models/blaster-p.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster Q", path: "models/blaster-q.glb", scale: 2.0 },
-    BlasterDef { name: "Blaster R", path: "models/blaster-r.glb", scale: 2.0 },
+    BlasterDef { name: "Pistol",    path: "models/small pistol.glb",                scale: 2.0, blaster_type: BlasterType::Single,   cooldown: 0.25, damage: 1 },
+    BlasterDef { name: "SMG",       path: "models/some smg.glb",                    scale: 2.0, blaster_type: BlasterType::Single,   cooldown: 0.08, damage: 1 },
+    BlasterDef { name: "Shotgun",   path: "models/dual barrel shotgun.glb",         scale: 2.0, blaster_type: BlasterType::Shotgun { pellets: 4, spread: 0.15 }, cooldown: 0.5, damage: 1 },
+    BlasterDef { name: "Sniper",    path: "models/really big sniper rifle.glb",     scale: 2.0, blaster_type: BlasterType::Sniper,   cooldown: 1.0,  damage: 3 },
+    BlasterDef { name: "Quad",      path: "models/quadruple barel pistol, look sreally cool.glb", scale: 2.0, blaster_type: BlasterType::Shotgun { pellets: 4, spread: 0.25 }, cooldown: 0.45, damage: 1 },
+    BlasterDef { name: "Rifle",     path: "models/maybe ar.glb",                    scale: 2.0, blaster_type: BlasterType::Burst { count: 3, interval: 0.06 },  cooldown: 0.35, damage: 1 },
 ];
 
 #[derive(Resource)]
@@ -61,6 +62,7 @@ pub struct ComputePivot;
 pub struct Bullet {
     pub velocity: Vec3,
     pub lifetime: Timer,
+    pub damage: u8,
 }
 
 #[derive(Component)]
@@ -75,6 +77,9 @@ struct PivotCache {
 struct AimInfo {
     aim_point: Option<Vec3>,
 }
+
+#[derive(Component)]
+pub struct ShootCooldown(pub Timer);
 
 pub const BULLET_SPEED: f32 = 80.0;
 pub const BULLET_RADIUS: f32 = 0.5;
@@ -92,7 +97,7 @@ impl Plugin for BlasterPlugin {
                 compute_pivot,
                 aim_blaster,
             ).chain().run_if(in_state(GameState::Playing)))
-            .add_systems(Update, (shoot_bullet, move_bullets).chain().run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (player_shoot, move_bullets).chain().run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -207,17 +212,47 @@ fn aim_blaster(
     blaster.rotation = rotation;
 }
 
-fn shoot_bullet(
+pub fn spawn_bullet(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    position: Vec3,
+    direction: Vec3,
+    damage: u8,
+    _cooldown: f32,
+    exclude: HashSet<Entity>,
+) {
+    commands.spawn((
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bullet.glb"))),
+        Transform::from_translation(position).with_scale(Vec3::splat(0.3)),
+        Bullet {
+            velocity: direction * BULLET_SPEED,
+            lifetime: Timer::from_seconds(BULLET_LIFETIME_SECS, TimerMode::Once),
+            damage,
+        },
+        ExcludeMeshRayCast(exclude),
+    ));
+}
+
+fn player_shoot(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
     aim_info: Res<AimInfo>,
     blaster_query: Query<&GlobalTransform, With<BlasterVisual>>,
     car_query: Query<Entity, With<PlayerCar>>,
     children_query: Query<&Children>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cooldown: Local<f32>,
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    blaster_selection: Res<BlasterSelection>,
 ) {
-    if !mouse_buttons.just_pressed(MouseButton::Left) {
+    let def = &BLASTER_DEFS[blaster_selection.display_index()];
+
+    if *cooldown > 0.0 {
+        *cooldown -= time.delta_secs();
+        return;
+    }
+
+    if !mouse_buttons.pressed(MouseButton::Left) {
         return;
     }
 
@@ -225,8 +260,8 @@ fn shoot_bullet(
     let Some(aim_point) = aim_info.aim_point else { return };
 
     let blaster_pos = blaster_global.translation();
-    let direction = (aim_point - blaster_pos).normalize_or(*blaster_global.forward());
-    let spawn_pos = blaster_pos + direction * 1.0;
+    let base_dir = (aim_point - blaster_pos).normalize_or(*blaster_global.forward());
+    let spawn_pos = blaster_pos + base_dir * 1.0;
 
     let mut exclude = HashSet::new();
     let Ok(car_entity) = car_query.single() else { return };
@@ -235,20 +270,34 @@ fn shoot_bullet(
         exclude.insert(desc);
     }
 
-    commands.spawn((
-        Mesh3d(meshes.add(Sphere::new(BULLET_RADIUS).mesh().ico(2).unwrap())),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Srgba::hex("ff0000").unwrap().into(),
-            emissive: LinearRgba::new(8.0, 0.0, 0.0, 1.0),
-            ..default()
-        })),
-        Transform::from_translation(spawn_pos),
-        Bullet {
-            velocity: direction * BULLET_SPEED,
-            lifetime: Timer::from_seconds(BULLET_LIFETIME_SECS, TimerMode::Once),
-        },
-        ExcludeMeshRayCast(exclude),
-    ));
+    *cooldown = def.cooldown;
+
+    match &def.blaster_type {
+        BlasterType::Single | BlasterType::Sniper => {
+            spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, def.damage, def.cooldown, exclude);
+        }
+        BlasterType::Double => {
+            let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
+            spawn_bullet(&mut commands, &asset_server, spawn_pos + right * 0.3, base_dir, def.damage, def.cooldown, exclude.clone());
+            spawn_bullet(&mut commands, &asset_server, spawn_pos - right * 0.3, base_dir, def.damage, def.cooldown, exclude);
+        }
+        BlasterType::Shotgun { pellets, spread } => {
+            let pellets = *pellets;
+            let spread = *spread;
+            let mut rng = rand::rng();
+            for _ in 0..pellets {
+                let s = Vec3::new(rng.random_range(-spread..spread), rng.random_range(-spread..spread), rng.random_range(-spread..spread));
+                let dir = (base_dir + s).normalize_or(base_dir);
+                spawn_bullet(&mut commands, &asset_server, spawn_pos, dir, def.damage, def.cooldown, exclude.clone());
+            }
+        }
+        BlasterType::Burst { count, .. } => {
+            let count = *count;
+            for _ in 0..count {
+                spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, def.damage, def.cooldown, exclude.clone());
+            }
+        }
+    }
 }
 
 fn move_bullets(
@@ -261,8 +310,7 @@ fn move_bullets(
     mut health_query: Query<&mut Health>,
     rubber_bullets: Res<RubberBullets>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     for (entity, mut transform, mut bullet, exclude_ray) in bullet_query.iter_mut() {
         bullet.lifetime.tick(time.delta());
@@ -296,14 +344,14 @@ fn move_bullets(
         if let Some(hit) = spatial_query.cast_shape(&shape, prev_pos, Quat::IDENTITY, direction, &config, &filter) {
             if let Some(car_entity) = find_car_ancestor(hit.entity, &parent_query, &player_query, &ai_query) {
                 if let Ok(mut health) = health_query.get_mut(car_entity) {
-                    health.0 = health.0.saturating_sub(1);
+                    health.0 = health.0.saturating_sub(bullet.damage);
                 }
                 transform.translation = prev_pos + direction * hit.distance;
                 commands.entity(entity).despawn();
                 continue;
             }
             let hit_pos = prev_pos + direction * hit.distance;
-            spawn_impact_effect(&mut commands, &mut meshes, &mut materials, hit_pos);
+            spawn_smoke_effect(&mut commands, &asset_server, hit_pos, 3);
             if rubber_bullets.enabled {
                 let reflected = direction.as_vec3().reflect(hit.normal1).normalize_or_zero();
                 if let Ok(dir) = Dir3::new(reflected) {
@@ -339,6 +387,34 @@ fn find_car_ancestor(
         }
     }
     None
+}
+
+pub fn spawn_smoke_effect(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    position: Vec3,
+    count: u32,
+) {
+    let smoke = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/smoke.glb"));
+    let mut rng = rand::rng();
+    for _ in 0..count {
+        let dir = Vec3::new(
+            rng.random_range(-1.0..1.0),
+            rng.random_range(0.0..1.0),
+            rng.random_range(-1.0..1.0),
+        ).normalize_or(Vec3::Y);
+        let speed = rng.random_range(3.0..12.0);
+        commands.spawn((
+            SceneRoot(smoke.clone()),
+            Transform::from_translation(position)
+                .with_scale(Vec3::splat(rng.random_range(0.3..0.8)))
+                .with_rotation(Quat::from_rotation_y(rng.random_range(0.0..std::f32::consts::TAU))),
+            crate::car::ExplosionParticle {
+                velocity: dir * speed,
+                lifetime: Timer::from_seconds(rng.random_range(0.3..0.8), TimerMode::Once),
+            },
+        ));
+    }
 }
 
 fn switch_blaster(

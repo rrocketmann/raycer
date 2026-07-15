@@ -1,9 +1,8 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::collections::HashSet;
-use std::time::Duration;
-use crate::blaster::{Bullet, ExcludeMeshRayCast, BLASTER_DEFS, BULLET_RADIUS, BULLET_SPEED};
-use crate::car::{AiCar, CarVisual, PlayerCar, CAR_DEFS, mount_y, Health, spawn_health_indicators, ExplosionTimer};
+use crate::blaster::{BLASTER_DEFS, BULLET_SPEED, spawn_smoke_effect};
+use crate::car::{AiCar, CarVisual, PlayerCar, CAR_DEFS, mount_y, Health, spawn_health_indicators, ExplosionTimer, DamageTracker};
 use crate::GameState;
 use crate::AiEnemyCount;
 use crate::MaxHealthPoints;
@@ -21,16 +20,13 @@ struct AiPivotCache {
 }
 
 #[derive(Component)]
-struct AiShootTimer {
-    timer: Timer,
+struct AiConfig {
+    car_index: usize,
+    blaster_index: usize,
 }
 
 #[derive(Component)]
-struct AiConfig {
-    car_index: usize,
-    bullet_color: Srgba,
-    bullet_emissive: LinearRgba,
-}
+struct AiShootCooldown(pub f32);
 
 pub struct AiPlugin;
 
@@ -45,12 +41,10 @@ impl Plugin for AiPlugin {
             ).chain())
             .add_systems(Update, ai_drive.run_if(in_state(GameState::Playing)))
             .add_systems(Update, ai_shoot.run_if(in_state(GameState::Playing)))
-            .add_systems(Update, despawn_dead_cars.run_if(in_state(GameState::Playing)));
+            .add_systems(Update, despawn_dead_cars.run_if(in_state(GameState::Playing)))
+            .add_systems(Update, damage_smoke.run_if(in_state(GameState::Playing)));
     }
 }
-
-#[derive(Component)]
-struct AiSpawnMarker;
 
 fn spawn_ai_cars(
     mut commands: Commands,
@@ -60,26 +54,13 @@ fn spawn_ai_cars(
     mut materials: ResMut<Assets<StandardMaterial>>,
     max_hp: Res<MaxHealthPoints>,
 ) {
-    let car_options: Vec<usize> = vec![3, 5, 8, 10, 13, 15, 0, 6];
-    let blaster_options: Vec<usize> = vec![1, 3, 5, 7, 9, 11, 13, 15, 17, 0];
-    let bullet_colors: Vec<(Srgba, LinearRgba)> = vec![
-        (Srgba::hex("ff4400").unwrap(), LinearRgba::new(6.0, 1.0, 0.0, 1.0)),
-        (Srgba::hex("00bbff").unwrap(), LinearRgba::new(0.0, 4.0, 6.0, 1.0)),
-        (Srgba::hex("cc00ff").unwrap(), LinearRgba::new(6.0, 0.0, 4.0, 1.0)),
-        (Srgba::hex("00ff88").unwrap(), LinearRgba::new(0.0, 6.0, 2.0, 1.0)),
-        (Srgba::hex("ffaa00").unwrap(), LinearRgba::new(6.0, 4.0, 0.0, 1.0)),
-        (Srgba::hex("ff0088").unwrap(), LinearRgba::new(6.0, 0.0, 3.0, 1.0)),
-        (Srgba::hex("88ff00").unwrap(), LinearRgba::new(3.0, 6.0, 0.0, 1.0)),
-        (Srgba::hex("0088ff").unwrap(), LinearRgba::new(0.0, 3.0, 6.0, 1.0)),
-        (Srgba::hex("ff6600").unwrap(), LinearRgba::new(6.0, 2.0, 0.0, 1.0)),
-        (Srgba::hex("aa00ff").unwrap(), LinearRgba::new(4.0, 0.0, 6.0, 1.0)),
-    ];
-
+    let car_options: Vec<usize> = vec![3, 5, 7, 8, 9, 10, 0, 1];
+    let blaster_options: Vec<usize> = vec![1, 2, 3, 4, 5, 0];
     let count = enemy_count.count;
     for i in 0..count {
         let car_index = car_options[i % car_options.len()];
         let blaster_index = blaster_options[i % blaster_options.len()];
-        let (bullet_color, bullet_emissive) = bullet_colors[i % bullet_colors.len()];
+
 
         let angle = i as f32 * std::f32::consts::TAU / count as f32;
         let radius = 40.0;
@@ -107,15 +88,16 @@ fn spawn_ai_cars(
             Friction::new(0.01),
             SweptCcd::NON_LINEAR,
             Mass(6.0),
-        )).insert(Health(max_hp.hp)).id();
+        )).insert((
+            Health(max_hp.hp),
+            DamageTracker::default(),
+        )).id();
         spawn_health_indicators(ai_root, &mut commands, &mut meshes, &mut materials, def.collider.y, max_hp.hp);
 
-        let mut rng = rand::rng();
-        let shoot_interval = rng.random_range(1.0..4.0);
         commands.entity(ai_root).insert((
             GravityScale(1.0),
-            AiShootTimer { timer: Timer::from_seconds(shoot_interval, TimerMode::Repeating) },
-            AiConfig { car_index, bullet_color, bullet_emissive },
+            AiShootCooldown(0.0),
+            AiConfig { car_index, blaster_index },
         ));
 
         commands.entity(ai_root).with_children(|parent| {
@@ -146,6 +128,9 @@ fn cleanup_ai_cars(mut commands: Commands, q: Query<Entity, With<AiSpawnMarker>>
         commands.entity(e).despawn();
     }
 }
+
+#[derive(Component)]
+struct AiSpawnMarker;
 
 fn ai_compute_pivot(
     mut commands: Commands,
@@ -217,131 +202,48 @@ fn ai_aim_blaster(
                     .map(|v| v.0 * travel_time * 0.7)
                     .unwrap_or(Vec3::ZERO);
                 let aim_point = target_pos + lead + Vec3::new(0.0, 1.0, 0.0);
-
-                let blaster_world_mount = ai_pos + ai_rot * mount;
-                let local_aim = ai_rot.inverse() * (aim_point - blaster_world_mount);
+                let local_aim = ai_rot.inverse() * (aim_point - ai_pos);
                 if local_aim.length_squared() < 0.01 { continue; }
                 let local_dir = local_aim.normalize();
                 let yaw = f32::atan2(-local_dir.x, -local_dir.z);
                 let horiz_len = Vec2::new(local_dir.x, local_dir.z).length();
                 let pitch = f32::atan2(local_dir.y, horiz_len);
-
                 let rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
                 blaster_transform.translation = mount - rotation * (s * pivot);
                 blaster_transform.rotation = rotation;
-
-                break;
             }
         }
-    }
-}
-
-fn ai_drive(
-    time: Res<Time>,
-    mut ai_query: Query<(Entity, &GlobalTransform, &mut LinearVelocity, &mut AngularVelocity), With<AiCar>>,
-    player_query: Query<(Entity, &GlobalTransform), With<PlayerCar>>,
-    all_cars: Query<(Entity, &GlobalTransform), Or<(With<AiCar>, With<PlayerCar>)>>,
-) {
-    let dt = time.delta_secs();
-    let car_data: Vec<(Entity, Vec3)> = all_cars.iter()
-        .map(|(e, t)| (e, t.translation()))
-        .collect();
-    let Ok((player_entity, player_transform)) = player_query.single() else { return };
-    let player_pos = player_transform.translation();
-
-    for (ai_entity, ai_transform, mut lin_vel, mut ang_vel) in ai_query.iter_mut() {
-        let ai_pos = ai_transform.translation();
-        let ai_rot = ai_transform.rotation();
-
-        if ai_pos.y < -3.0 {
-            lin_vel.0 = Vec3::new(0.0, 5.0, 0.0);
-            ang_vel.0 = Vec3::ZERO;
-            continue;
-        }
-
-        let to_player = player_pos - ai_pos;
-        let flat_to_player = Vec3::new(to_player.x, 0.0, to_player.z);
-        let player_dist = flat_to_player.length();
-
-        let aggression = if player_dist > 20.0 {
-            (1.0 + (player_dist - 20.0) / 30.0).min(2.0)
-        } else {
-            1.0
-        };
-
-        let chase_dir = if flat_to_player.length_squared() > 1.0 {
-            flat_to_player.normalize_or(Vec3::Z) * aggression
-        } else {
-            Vec3::ZERO
-        };
-
-        let mut flee_dir = Vec3::ZERO;
-        for (other_entity, other_pos) in &car_data {
-            if *other_entity == ai_entity || *other_entity == player_entity { continue; }
-            let away = ai_pos - *other_pos;
-            let flat_away = Vec3::new(away.x, 0.0, away.z);
-            let d = flat_away.length();
-            if d < 15.0 && d > 0.01 {
-                flee_dir += flat_away.normalize_or(Vec3::ZERO) * (1.0 - d / 15.0);
-            }
-        }
-
-        let desired_dir = (chase_dir + flee_dir).normalize_or(flat_to_player.normalize_or(Vec3::Z));
-
-        let forward = ai_rot * Vec3::Z;
-        let flat_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or(Vec3::Z);
-
-        let angle_to_target = f32::atan2(
-            flat_forward.cross(desired_dir).y,
-            flat_forward.dot(desired_dir),
-        );
-
-        ang_vel.0 = Vec3::Y * angle_to_target * 4.0;
-
-        let normalized_angle = angle_to_target.abs() / std::f32::consts::PI;
-        let speed_factor = (0.5 - normalized_angle) * 2.0 * aggression;
-        let target_speed = 45.0 * speed_factor;
-
-        let current_vel = lin_vel.0;
-        let current_flat = Vec3::new(current_vel.x, 0.0, current_vel.z);
-        let forward_dir = if target_speed >= 0.0 { flat_forward } else { -flat_forward };
-        let current_speed = current_flat.dot(forward_dir);
-
-        let accel = (target_speed.abs() - current_speed) * (5.0 * dt).min(1.0);
-        let new_speed = current_speed + accel;
-
-        lin_vel.0 = forward_dir * new_speed + Vec3::new(0.0, current_vel.y, 0.0);
     }
 }
 
 fn ai_shoot(
     time: Res<Time>,
-    mut ai_query: Query<(Entity, &GlobalTransform, &AiConfig, &mut AiShootTimer), With<AiCar>>,
+    mut ai_query: Query<(Entity, &GlobalTransform, &AiConfig, &mut AiShootCooldown), With<AiCar>>,
     player_query: Query<(Entity, &GlobalTransform), With<PlayerCar>>,
     velocities: Query<&LinearVelocity>,
     blaster_global_query: Query<&GlobalTransform, With<AiBlasterVisual>>,
     children_query: Query<&Children>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
 ) {
     let Ok((player_entity, player_global)) = player_query.single() else { return };
     let target_pos = player_global.translation();
 
-    for (ai_entity, ai_global, ai_config, mut shoot_timer) in ai_query.iter_mut() {
-        shoot_timer.timer.tick(time.delta());
-        if !shoot_timer.timer.just_finished() { continue; }
+    for (ai_entity, ai_global, ai_config, mut cooldown) in ai_query.iter_mut() {
+        if cooldown.0 > 0.0 {
+            cooldown.0 -= time.delta_secs();
+            continue;
+        }
 
-        let mut rng = rand::rng();
-        let new_interval = rng.random_range(1.0..4.0);
-        shoot_timer.timer.set_duration(Duration::from_secs_f32(new_interval));
-        shoot_timer.timer.reset();
+        let blaster_def = &BLASTER_DEFS[ai_config.blaster_index];
+        cooldown.0 = blaster_def.cooldown;
 
         let distance = (target_pos - ai_global.translation()).length();
         let travel_time = distance / BULLET_SPEED;
         let lead = velocities.get(player_entity)
             .map(|v| v.0 * travel_time * 0.9)
             .unwrap_or(Vec3::ZERO);
+        let mut rng = rand::rng();
         let aim_point = target_pos + lead + Vec3::new(rng.random_range(-0.5..0.5), rng.random_range(-0.3..0.3), rng.random_range(-0.5..0.5));
 
         let Ok(children) = children_query.get(ai_entity) else { continue };
@@ -353,8 +255,8 @@ fn ai_shoot(
             }
         }
 
-        let direction = (aim_point - blaster_pos).normalize_or(Vec3::Z);
-        let spawn_pos = blaster_pos + direction * 1.0;
+        let base_dir = (aim_point - blaster_pos).normalize_or(Vec3::Z);
+        let spawn_pos = blaster_pos + base_dir * 1.0;
 
         let mut exclude = HashSet::new();
         exclude.insert(ai_entity);
@@ -362,20 +264,80 @@ fn ai_shoot(
             exclude.insert(desc);
         }
 
-        commands.spawn((
-            Mesh3d(meshes.add(Sphere::new(BULLET_RADIUS).mesh().ico(2).unwrap())),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: ai_config.bullet_color.into(),
-                emissive: ai_config.bullet_emissive,
-                ..default()
-            })),
-            Transform::from_translation(spawn_pos),
-            Bullet {
-                velocity: direction * BULLET_SPEED,
-                lifetime: Timer::from_seconds(5.0, TimerMode::Once),
-            },
-            ExcludeMeshRayCast(exclude),
-        ));
+        match &blaster_def.blaster_type {
+            crate::blaster::BlasterType::Single | crate::blaster::BlasterType::Sniper => {
+                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, blaster_def.damage, blaster_def.cooldown, exclude);
+            }
+            crate::blaster::BlasterType::Double => {
+                let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
+                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos + right * 0.3, base_dir, blaster_def.damage, blaster_def.cooldown, exclude.clone());
+                crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos - right * 0.3, base_dir, blaster_def.damage, blaster_def.cooldown, exclude);
+            }
+            crate::blaster::BlasterType::Shotgun { pellets, spread } => {
+                let pellets = *pellets;
+                let spread = *spread;
+                for _ in 0..pellets {
+                    let s = Vec3::new(rng.random_range(-spread..spread), rng.random_range(-spread..spread), rng.random_range(-spread..spread));
+                    let dir = (base_dir + s).normalize_or(base_dir);
+                    crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, dir, blaster_def.damage, blaster_def.cooldown, exclude.clone());
+                }
+            }
+            crate::blaster::BlasterType::Burst { count, .. } => {
+                let count = *count;
+                for _ in 0..count {
+                    crate::blaster::spawn_bullet(&mut commands, &asset_server, spawn_pos, base_dir, blaster_def.damage, blaster_def.cooldown, exclude.clone());
+                }
+            }
+        }
+    }
+}
+
+fn damage_smoke(
+    mut commands: Commands,
+    mut car_query: Query<(Entity, &Health, &mut DamageTracker, &GlobalTransform), (With<AiCar>, Without<PlayerCar>)>,
+    asset_server: Res<AssetServer>,
+    max_hp: Res<MaxHealthPoints>,
+) {
+    for (_entity, health, mut tracker, transform) in car_query.iter_mut() {
+        let damage_taken = max_hp.hp.saturating_sub(health.0);
+        if damage_taken > tracker.total_damage_taken {
+            let new_damage = damage_taken - tracker.total_damage_taken;
+            tracker.total_damage_taken = damage_taken;
+            let smoke_count = (new_damage as u32) * 3;
+            spawn_smoke_effect(&mut commands, &asset_server, transform.translation(), smoke_count);
+        }
+    }
+}
+
+fn ai_drive(
+    mut ai_query: Query<(&AiConfig, &mut LinearVelocity, &Position, &Rotation), With<AiCar>>,
+    player_query: Query<&Position, (With<PlayerCar>, Without<AiCar>)>,
+    time: Res<Time>,
+) {
+    let Ok(player_pos) = player_query.single() else { return };
+    let max_speed = 60.0;
+
+    for (_config, mut velocity, pos, rot) in ai_query.iter_mut() {
+        let to_player = player_pos.0 - pos.0;
+        let dist = to_player.length();
+
+        if dist < 15.0 {
+            let flee_dir = -to_player.normalize_or(Vec3::Z);
+            let flat_flee = Vec3::new(flee_dir.x, 0.0, flee_dir.z).normalize_or(Vec3::Z);
+            let target = flat_flee * max_speed;
+            velocity.0 = velocity.0.lerp(target, time.delta_secs() * 3.0);
+            continue;
+        }
+
+        let flat_to = Vec3::new(to_player.x, 0.0, to_player.z).normalize_or(Vec3::Z);
+        let target = flat_to * max_speed;
+        velocity.0 = velocity.0.lerp(target, time.delta_secs() * 2.0);
+
+        let target_yaw = f32::atan2(-flat_to.x, -flat_to.z);
+        let current_yaw = rot.to_euler(EulerRot::YXZ).0;
+        let mut yaw_diff = target_yaw - current_yaw;
+        if yaw_diff > std::f32::consts::PI { yaw_diff -= std::f32::consts::TAU; }
+        if yaw_diff < -std::f32::consts::PI { yaw_diff += std::f32::consts::TAU; }
     }
 }
 

@@ -3,7 +3,7 @@ use avian3d::prelude::*;
 use bevy_egui::{EguiContext, EguiContextSettings, EguiFullOutput, EguiInput, PrimaryEguiContext};
 use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, ShadowFilteringMethod};
 use rand::Rng;
-use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData, CarSelection, Health, spawn_health_indicators};
+use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData, CarSelection, Health, DamageTracker, spawn_health_indicators};
 use crate::blaster::{BlasterSelection, BLASTER_DEFS};
 use crate::GameState;
 use crate::MaxHealthPoints;
@@ -77,6 +77,7 @@ fn spawn_world(
         Rotation::default(),
         LinearVelocity::ZERO,
         AngularVelocity::ZERO,
+        DamageTracker::default(),
     )).insert(Health(max_hp.hp)).id();
     spawn_health_indicators(car_root, &mut commands, &mut meshes, &mut materials, def.collider.y, max_hp.hp);
     let half_height = def.collider.y * 0.5;

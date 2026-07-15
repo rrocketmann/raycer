@@ -6,6 +6,11 @@ use rand::Rng;
 use crate::GameState;
 use crate::MaxHealthPoints;
 
+#[derive(Component, Default)]
+pub struct DamageTracker {
+    pub total_damage_taken: u8,
+}
+
 pub const SKY_BOUNDARY: f32 = 50.0;
 
 #[derive(Component)]
@@ -27,20 +32,11 @@ pub const CAR_DEFS: &[CarDef] = &[
     CarDef { name: "Sedan",          path: "models/sedan.glb",             collider: Vec3::new(1.50, 1.15, 2.55) },
     CarDef { name: "Sedan Sport",    path: "models/sedan-sports.glb",      collider: Vec3::new(1.30, 0.95, 2.55) },
     CarDef { name: "SUV",            path: "models/suv.glb",               collider: Vec3::new(1.50, 1.10, 2.55) },
-    CarDef { name: "SUV Luxury",     path: "models/suv-luxury.glb",        collider: Vec3::new(1.50, 1.18, 2.85) },
     CarDef { name: "Taxi",           path: "models/taxi.glb",              collider: Vec3::new(1.50, 1.35, 2.75) },
     CarDef { name: "Police",         path: "models/police.glb",            collider: Vec3::new(1.50, 1.10, 2.90) },
-    CarDef { name: "Ambulance",      path: "models/ambulance.glb",          collider: Vec3::new(1.50, 1.60, 3.25) },
     CarDef { name: "Delivery",       path: "models/delivery.glb",           collider: Vec3::new(1.50, 1.50, 3.25) },
-    CarDef { name: "Delivery Flat",  path: "models/delivery-flat.glb",      collider: Vec3::new(1.50, 1.20, 3.25) },
-    CarDef { name: "Van",            path: "models/van.glb",               collider: Vec3::new(1.50, 1.20, 2.75) },
     CarDef { name: "Truck",          path: "models/truck.glb",             collider: Vec3::new(1.50, 1.15, 2.95) },
-    CarDef { name: "Truck Flat",     path: "models/truck-flat.glb",        collider: Vec3::new(1.50, 1.15, 2.75) },
-    CarDef { name: "Firetruck",      path: "models/firetruck.glb",          collider: Vec3::new(1.50, 1.50, 3.25) },
-    CarDef { name: "Garbage",        path: "models/garbage-truck.glb",     collider: Vec3::new(1.50, 1.48, 3.45) },
     CarDef { name: "Tractor",        path: "models/tractor.glb",           collider: Vec3::new(1.34, 1.41, 1.98) },
-    CarDef { name: "Tractor Police", path: "models/tractor-police.glb",    collider: Vec3::new(1.34, 1.51, 1.98) },
-    CarDef { name: "Tractor Shovel", path: "models/tractor-shovel.glb",    collider: Vec3::new(1.46, 1.34, 2.00) },
 ];
 
 pub fn mount_y(collider_y: f32) -> f32 {
@@ -185,35 +181,7 @@ pub struct ExplosionParticle {
     pub lifetime: Timer,
 }
 
-pub fn spawn_impact_effect(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    position: Vec3,
-) {
-    let mut rng = rand::rng();
-    for _ in 0..5 {
-        let dir = Vec3::new(
-            rng.random_range(-1.0..1.0),
-            rng.random_range(0.0..1.0),
-            rng.random_range(-1.0..1.0),
-        ).normalize_or(Vec3::Y);
-        let speed = rng.random_range(5.0..20.0);
-        commands.spawn((
-            Mesh3d(meshes.add(Sphere::new(0.2).mesh().ico(1).unwrap())),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Srgba::hex("ff8800").unwrap().into(),
-                emissive: LinearRgba::new(4.0, 2.0, 0.0, 1.0),
-                ..default()
-            })),
-            Transform::from_translation(position),
-            ExplosionParticle {
-                velocity: dir * speed,
-                lifetime: Timer::from_seconds(rng.random_range(0.2..0.5), TimerMode::Once),
-            },
-        ));
-    }
-}
+
 
 fn move_explosion_particles(
     time: Res<Time>,
@@ -234,9 +202,9 @@ fn update_explosions(
     time: Res<Time>,
     mut commands: Commands,
     mut explosion_query: Query<(Entity, &GlobalTransform, &mut ExplosionTimer)>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
+    let smoke = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/smoke.glb"));
     for (entity, transform, mut timer) in explosion_query.iter_mut() {
         timer.0.tick(time.delta());
         if timer.0.just_finished() {
@@ -244,21 +212,18 @@ fn update_explosions(
             continue;
         }
         let mut rng = rand::rng();
-        for _ in 0..3 {
+        for _ in 0..5 {
             let dir = Vec3::new(
                 rng.random_range(-1.0..1.0),
                 rng.random_range(0.0..1.0),
                 rng.random_range(-1.0..1.0),
             ).normalize_or(Vec3::Y);
-            let speed = rng.random_range(15.0..40.0);
+            let speed = rng.random_range(5.0..20.0);
             commands.spawn((
-                Mesh3d(meshes.add(Sphere::new(0.25).mesh().ico(1).unwrap())),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Srgba::hex("ff6600").unwrap().into(),
-                    emissive: LinearRgba::new(6.0, 2.0, 0.0, 1.0),
-                    ..default()
-                })),
-                Transform::from_translation(transform.translation()),
+                SceneRoot(smoke.clone()),
+                Transform::from_translation(transform.translation())
+                    .with_scale(Vec3::splat(rng.random_range(0.5..1.5)))
+                    .with_rotation(Quat::from_rotation_y(rng.random_range(0.0..std::f32::consts::TAU))),
                 ExplosionParticle {
                     velocity: dir * speed,
                     lifetime: Timer::from_seconds(rng.random_range(0.3..0.8), TimerMode::Once),
