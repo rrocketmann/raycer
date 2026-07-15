@@ -26,11 +26,11 @@ pub struct BlasterDef {
 }
 
 pub const BLASTER_DEFS: &[BlasterDef] = &[
-    BlasterDef { name: "Pistol",    path: "models/small pistol.glb",                scale: 3.5, blaster_type: BlasterType::Single,                 capacity: 3.0, reload_speed: 5.0,  damage: 1 },
-    BlasterDef { name: "SMG",       path: "models/some smg.glb",                    scale: 3.5, blaster_type: BlasterType::Single,                 capacity: 5.0, reload_speed: 8.0,  damage: 1 },
-    BlasterDef { name: "Shotgun",   path: "models/dual barrel shotgun.glb",         scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.12 }, capacity: 2.0, reload_speed: 2.0, damage: 1 },
-    BlasterDef { name: "Sniper",    path: "models/really big sniper rifle.glb",     scale: 3.5, blaster_type: BlasterType::Sniper,                 capacity: 1.0, reload_speed: 1.5,  damage: 3 },
-    BlasterDef { name: "Quad",      path: "models/quadruple barel pistol, look sreally cool.glb", scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.2 }, capacity: 2.0, reload_speed: 2.0, damage: 1 },
+    BlasterDef { name: "Pistol",    path: "models/small pistol.glb",                scale: 3.5, blaster_type: BlasterType::Single,                 capacity: 1.0, reload_speed: 2.0, damage: 1 },
+    BlasterDef { name: "SMG",       path: "models/some smg.glb",                    scale: 3.5, blaster_type: BlasterType::Single,                 capacity: 3.0, reload_speed: 2.0, damage: 1 },
+    BlasterDef { name: "Shotgun",   path: "models/dual barrel shotgun.glb",         scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.12 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
+    BlasterDef { name: "Sniper",    path: "models/really big sniper rifle.glb",     scale: 3.5, blaster_type: BlasterType::Sniper,                 capacity: 1.0, reload_speed: 0.67, damage: 3 },
+    BlasterDef { name: "Quad",      path: "models/quadruple barel pistol, look sreally cool.glb", scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.2 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
     BlasterDef { name: "Rifle",     path: "models/maybe ar.glb",                    scale: 3.5, blaster_type: BlasterType::Burst { count: 3, interval: 0.06 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
 ];
 
@@ -82,7 +82,7 @@ struct AimInfo {
 #[derive(Component)]
 pub struct ShootCooldown(pub Timer);
 
-pub const BULLET_SPEED: f32 = 80.0;
+pub const BULLET_SPEED: f32 = 50.0;
 pub const BULLET_RADIUS: f32 = 0.5;
 pub const BULLET_LIFETIME_SECS: f32 = 5.0;
 
