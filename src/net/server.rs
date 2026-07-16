@@ -30,7 +30,6 @@ pub struct ClientInputState {
     pub steer: f32,
     pub braking: bool,
     pub boosting: bool,
-    pub shoot: bool,
     pub sequence: u64,
 }
 
@@ -78,12 +77,12 @@ impl GameServer {
                         self.send_to(id, &accept);
                         self.broadcast_lobby_update();
                     }
-                    ClientMessage::Input { sequence, throttle, steer, braking, boosting, shoot } => {
+                    ClientMessage::Input { sequence, throttle, steer, braking, boosting, shoot: _ } => {
                         if let Some(client) = self.clients.values_mut()
                             .find(|c| c.addr == pkt.addr) {
                             if sequence > client.input.sequence {
                                 client.input = ClientInputState {
-                                    throttle, steer, braking, boosting, shoot, sequence,
+                                    throttle, steer, braking, boosting, sequence,
                                 };
                             }
                         }
@@ -169,10 +168,6 @@ pub fn server_broadcast_system(mut server: Option<ResMut<GameServer>>) {
     sock.send_to(&buf, format!("255.255.255.255:{}", DISCOVERY_PORT)).ok();
 }
 
-pub fn all_players_ready(server: &GameServer) -> bool {
-    server.clients.values().all(|c| c.info.ready)
-}
-
 pub fn server_snapshot_system(
     server: Option<Res<GameServer>>,
     car_query: Query<(&Transform, &Health, Option<&OwnerClient>, Option<&CarModelIndex>, Option<&BlasterModelIndex>)>,
@@ -201,17 +196,11 @@ pub fn server_snapshot_system(
     server.send_snapshot(cars, Vec::new());
 }
 
-pub fn spawn_client_cars(
-    _server: Res<GameServer>,
-    _commands: Commands,
-    _asset_server: Res<AssetServer>,
-) {
-}
-
 pub fn apply_client_inputs(
-    server: Res<GameServer>,
+    server: Option<Res<GameServer>>,
     mut query: Query<(&OwnerClient, &mut crate::car::CarInput)>,
 ) {
+    let Some(server) = server else { return };
     for (owner, mut input) in query.iter_mut() {
         if let Some(client) = server.clients.get(&owner.0) {
             let ci = &client.input;

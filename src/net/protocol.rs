@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 pub const GAME_PORT: u16 = 42070;
 pub const DISCOVERY_PORT: u16 = 42069;
 pub const MAX_PLAYERS: usize = 8;
-pub const PROTOCOL_ID: u32 = 1;
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClientMessage {
     Hello { username: String, car_index: usize, blaster_index: usize },

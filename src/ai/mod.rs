@@ -246,7 +246,6 @@ fn ai_shoot(
         charge.0 = (charge.0 + blaster_def.reload_speed * time.delta_secs()).min(blaster_def.capacity);
         let shot_cost = match &blaster_def.blaster_type {
             crate::blaster::BlasterType::Single | crate::blaster::BlasterType::Sniper => 1.0,
-            crate::blaster::BlasterType::Double => 2.0,
             crate::blaster::BlasterType::Shotgun { pellets, .. } => *pellets as f32,
             crate::blaster::BlasterType::Burst { count, .. } => *count as f32,
         };
@@ -283,11 +282,6 @@ fn ai_shoot(
         match &blaster_def.blaster_type {
             crate::blaster::BlasterType::Single | crate::blaster::BlasterType::Sniper => {
                 crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, blaster_def.damage, exclude, color, emissive, bo);
-            }
-            crate::blaster::BlasterType::Double => {
-                let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
-                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos + right * 0.3, base_dir, blaster_def.damage, exclude.clone(), color, emissive, bo.clone());
-                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos - right * 0.3, base_dir, blaster_def.damage, exclude, color, emissive, bo);
             }
             crate::blaster::BlasterType::Shotgun { pellets, spread } => {
                 let pellets = *pellets;
@@ -350,11 +344,8 @@ fn ai_drive(
         let target = flat_to * max_speed;
         velocity.0 = velocity.0.lerp(target, time.delta_secs() * 2.0);
 
-        let target_yaw = f32::atan2(-flat_to.x, -flat_to.z);
-        let current_yaw = rot.to_euler(EulerRot::YXZ).0;
-        let mut yaw_diff = target_yaw - current_yaw;
-        if yaw_diff > std::f32::consts::PI { yaw_diff -= std::f32::consts::TAU; }
-        if yaw_diff < -std::f32::consts::PI { yaw_diff += std::f32::consts::TAU; }
+        let _target_yaw = f32::atan2(-flat_to.x, -flat_to.z);
+        let _current_yaw = rot.to_euler(EulerRot::YXZ).0;
     }
 }
 

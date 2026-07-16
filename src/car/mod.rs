@@ -12,8 +12,6 @@ pub struct DamageTracker {
     pub total_damage_taken: u8,
 }
 
-pub const SKY_BOUNDARY: f32 = 50.0;
-
 #[derive(Component)]
 pub struct Health(pub u8);
 

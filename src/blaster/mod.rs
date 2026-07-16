@@ -9,9 +9,8 @@ use crate::NetMode;
 #[derive(Clone)]
 pub enum BlasterType {
     Single,
-    Double,
     Shotgun { pellets: u32, spread: f32 },
-    Burst { count: u32, interval: f32 },
+    Burst { count: u32 },
     Sniper,
 }
 
@@ -31,7 +30,7 @@ pub const BLASTER_DEFS: &[BlasterDef] = &[
     BlasterDef { name: "Shotgun",   path: "models/dual barrel shotgun.glb",         scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.12 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
     BlasterDef { name: "Sniper",    path: "models/really big sniper rifle.glb",     scale: 3.5, blaster_type: BlasterType::Sniper,                 capacity: 1.0, reload_speed: 0.67, damage: 3 },
     BlasterDef { name: "Quad",      path: "models/quadruple barel pistol, look sreally cool.glb", scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.2 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
-    BlasterDef { name: "Rifle",     path: "models/maybe ar.glb",                    scale: 3.5, blaster_type: BlasterType::Burst { count: 3, interval: 0.06 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
+    BlasterDef { name: "Rifle",     path: "models/maybe ar.glb",                    scale: 3.5, blaster_type: BlasterType::Burst { count: 3 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
 ];
 
 #[derive(Resource)]
@@ -78,9 +77,6 @@ struct PivotCache {
 struct AimInfo {
     aim_point: Option<Vec3>,
 }
-
-#[derive(Component)]
-pub struct ShootCooldown(pub Timer);
 
 pub const BULLET_SPEED: f32 = 80.0;
 pub const BULLET_RADIUS: f32 = 0.5;
@@ -291,7 +287,6 @@ fn player_shoot(
     let bullet_owner = Some(crate::BulletOwner { client_id: 0, team: 0 });
     let shot_cost = match &def.blaster_type {
         BlasterType::Single | BlasterType::Sniper => 1.0,
-        BlasterType::Double => 2.0,
         BlasterType::Shotgun { pellets, .. } => *pellets as f32,
         BlasterType::Burst { count, .. } => *count as f32,
     };
@@ -302,11 +297,6 @@ fn player_shoot(
     match &def.blaster_type {
         BlasterType::Single | BlasterType::Sniper => {
             spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, def.damage, exclude, color, emissive, bullet_owner);
-        }
-        BlasterType::Double => {
-            let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
-            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos + right * 0.3, base_dir, def.damage, exclude.clone(), color, emissive, bullet_owner.clone());
-            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos - right * 0.3, base_dir, def.damage, exclude, color, emissive, bullet_owner);
         }
         BlasterType::Shotgun { pellets, spread } => {
             let pellets = *pellets;

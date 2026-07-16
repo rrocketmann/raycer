@@ -78,10 +78,6 @@ impl GameClient {
         });
     }
 
-    pub fn send_ready(&self) {
-        self.send(&ClientMessage::Ready);
-    }
-
     pub fn poll(&self) -> Option<ServerMessage> {
         while let Some(pkt) = self.net.try_recv() {
             if let Ok(msg) = bincode::deserialize::<ServerMessage>(&pkt.data) {
@@ -93,9 +89,10 @@ impl GameClient {
 }
 
 pub fn discovery_listen_system(
-    receiver: Res<ClientBroadcastReceiver>,
+    receiver: Option<Res<ClientBroadcastReceiver>>,
     mut discovered: ResMut<DiscoveredServers>,
 ) {
+    let Some(receiver) = receiver else { return };
     while let Some((data, addr)) = receiver.0.poll() {
         if let Ok(adv) = bincode::deserialize::<ServerAdvertisement>(&data) {
             if !discovered.0.iter().any(|s| s.adv.port == adv.port) {

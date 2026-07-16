@@ -16,7 +16,7 @@ pub struct IncomingPacket {
 pub struct NetworkThread {
     pub sender: mpsc::Sender<OutgoingPacket>,
     pub receiver: Mutex<mpsc::Receiver<IncomingPacket>>,
-    handle: Option<thread::JoinHandle<()>>,
+    _handle: Option<thread::JoinHandle<()>>,
 }
 
 impl NetworkThread {
@@ -63,7 +63,7 @@ impl NetworkThread {
             }
         });
 
-        Ok(Self { sender: tx_out, receiver: Mutex::new(rx_in), handle: Some(handle) })
+        Ok(Self { sender: tx_out, receiver: Mutex::new(rx_in), _handle: Some(handle) })
     }
 
     pub fn send(&self, addr: SocketAddr, data: Vec<u8>) {
@@ -97,19 +97,4 @@ impl BroadcastReceiver {
     }
 }
 
-pub struct Broadcaster {
-    socket: UdpSocket,
-}
 
-impl Broadcaster {
-    pub fn start() -> Result<Self, String> {
-        let socket = UdpSocket::bind("0.0.0.0:0")
-            .map_err(|e| format!("broadcaster bind: {}", e))?;
-        socket.set_broadcast(true).map_err(|e| format!("broadcast set: {}", e))?;
-        Ok(Self { socket })
-    }
-
-    pub fn broadcast(&self, data: &[u8]) {
-        self.socket.send_to(data, format!("255.255.255.255:{}", crate::net::protocol::DISCOVERY_PORT)).ok();
-    }
-}

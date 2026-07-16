@@ -3,7 +3,7 @@ use avian3d::dynamics::solver::SolverConfig;
 use avian3d::prelude::*;
 use rand::Rng;
 
-use crate::car::{PlayerCar, Health, AiCar, ExplosionTimer, CarCamera, CarVisual, CarSelection, CAR_DEFS, mount_y};
+use crate::car::{PlayerCar, Health, AiCar, ExplosionTimer, CarVisual, CarSelection, CAR_DEFS, mount_y};
 use crate::blaster::{BlasterSelection, BLASTER_DEFS};
 use crate::net::protocol::*;
 
