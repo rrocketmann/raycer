@@ -5,50 +5,89 @@ use crate::car::{CarSelection, Telemetry, CAR_DEFS};
 use crate::blaster::{BlasterSelection, WeaponCharge, BLASTER_DEFS};
 use crate::GameState;
 use crate::AiEnemyCount;
-use crate::RubberBullets;
 use crate::MaxHealthPoints;
 use crate::GameOutcome;
 use crate::PendingState;
+use crate::NetMode;
+use crate::PlayerName;
+use crate::PendingConnect;
+use crate::PendingHost;
+use crate::net::client::{DiscoveredServers, LobbyData, GameClient};
 
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, egui_panel);
+        app.add_systems(EguiPrimaryContextPass, (
+            pregame_ui_system.run_if(in_state(GameState::PreGame)),
+            lobby_ui_system.run_if(in_state(GameState::MultiplayerLobby)),
+            playing_ui_system.run_if(in_state(GameState::Playing)),
+            death_ui_system.run_if(in_state(GameState::Eliminated)),
+        ));
     }
 }
 
-fn egui_panel(
+fn pregame_ui_system(
     mut contexts: EguiContexts,
-    telemetry: Res<Telemetry>,
     mut car_selection: ResMut<CarSelection>,
     mut blaster_selection: ResMut<BlasterSelection>,
-    keys: Res<ButtonInput<KeyCode>>,
-    game_state: Res<State<GameState>>,
     mut ai_enemy_count: ResMut<AiEnemyCount>,
-    mut rubber_bullets: ResMut<RubberBullets>,
     mut max_hp: ResMut<MaxHealthPoints>,
-    outcome: Res<GameOutcome>,
     mut pending: ResMut<PendingState>,
-    charge: Res<WeaponCharge>,
+    mut pending_host: ResMut<PendingHost>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
+    pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut max_hp, &mut *pending, &mut *pending_host);
+}
 
-    match game_state.get() {
-        GameState::Loading => {}
-        GameState::PreGame => {
-            pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut rubber_bullets, &mut max_hp, &mut *pending);
-        }
-        GameState::Playing => {
-            playing_ui(ctx, &telemetry, &keys, &charge, &blaster_selection);
-        }
-        GameState::Eliminated => {
-            death_ui(ctx, &outcome, &mut *pending);
-        }
-    }
+fn lobby_ui_system(
+    mut contexts: EguiContexts,
+    mode: Res<NetMode>,
+    name: Res<PlayerName>,
+    mut pending: ResMut<PendingState>,
+    mut discovered: ResMut<DiscoveredServers>,
+    lobby_data: Res<LobbyData>,
+    client: Option<Res<GameClient>>,
+    mut car_selection: ResMut<CarSelection>,
+    mut blaster_selection: ResMut<BlasterSelection>,
+    mut ai_enemy_count: ResMut<AiEnemyCount>,
+    mut max_hp: ResMut<MaxHealthPoints>,
+    mut pending_connect: ResMut<PendingConnect>,
+) {
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+    multiplayer_lobby_ui(ctx, &mode, &name, &mut *pending, &mut discovered, &lobby_data, client.as_deref(), &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut max_hp, &mut *pending_connect);
+}
+
+fn playing_ui_system(
+    mut contexts: EguiContexts,
+    telemetry: Res<Telemetry>,
+    keys: Res<ButtonInput<KeyCode>>,
+    charge: Res<WeaponCharge>,
+    blaster_selection: Res<BlasterSelection>,
+) {
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+    playing_ui(ctx, &telemetry, &keys, &charge, &blaster_selection);
+}
+
+fn death_ui_system(
+    mut contexts: EguiContexts,
+    outcome: Res<GameOutcome>,
+    mut pending: ResMut<PendingState>,
+) {
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+    death_ui(ctx, &outcome, &mut *pending);
 }
 
 fn name_box(ui: &mut egui::Ui, text: &str) {
@@ -64,9 +103,9 @@ fn pre_game_ui(
     car_selection: &mut CarSelection,
     blaster_selection: &mut BlasterSelection,
     ai_enemy_count: &mut AiEnemyCount,
-    rubber_bullets: &mut RubberBullets,
     max_hp: &mut MaxHealthPoints,
     pending: &mut PendingState,
+    pending_host: &mut PendingHost,
 ) {
     let panel_w = 260.0;
     let btn_size = 32.0;
@@ -80,7 +119,7 @@ fn pre_game_ui(
                 ui.add_space(60.0);
 
                 ui.allocate_ui_with_layout(
-                    egui::vec2(panel_w, 330.0),
+                    egui::vec2(panel_w, 290.0),
                     egui::Layout::top_down(egui::Align::Center),
                     |ui| {
                         // Car row
@@ -223,45 +262,11 @@ fn pre_game_ui(
                             }
                         });
 
-                        ui.add_space(20.0);
-
-                        // Rubber Bullets row
-                        ui.label(egui::RichText::new("RUBBER BULLETS").size(11.0).color(egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180)));
-                        ui.add_space(4.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
-                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                if rubber_bullets.random {
-                                    rubber_bullets.random = false;
-                                    rubber_bullets.enabled = true;
-                                } else if rubber_bullets.enabled {
-                                    rubber_bullets.enabled = false;
-                                } else {
-                                    rubber_bullets.random = true;
-                                }
-                            }
-                            name_box(ui, if rubber_bullets.random { "RANDOM" } else if rubber_bullets.enabled { "ON" } else { "OFF" });
-                            if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                if rubber_bullets.random {
-                                    rubber_bullets.random = false;
-                                    rubber_bullets.enabled = false;
-                                } else if rubber_bullets.enabled {
-                                    rubber_bullets.random = true;
-                                } else {
-                                    rubber_bullets.enabled = true;
-                                }
-                            }
-                        });
                     },
                 );
 
                 ui.add_space(36.0);
 
-                // Start button
                 let start_resp = ui.add_sized(
                     [panel_w, 42.0],
                     egui::Button::new(
@@ -270,6 +275,112 @@ fn pre_game_ui(
                 );
                 if start_resp.clicked() {
                     pending.0 = Some(GameState::Playing);
+                }
+                ui.add_space(12.0);
+                let mp_resp = ui.add_sized(
+                    [panel_w, 42.0],
+                    egui::Button::new(
+                        egui::RichText::new("MULTIPLAYER").size(18.0).strong().color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+                    ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)),
+                );
+                if mp_resp.clicked() {
+                    pending_host.0 = true;
+                    pending.0 = Some(GameState::MultiplayerLobby);
+                }
+            });
+        });
+}
+
+fn multiplayer_lobby_ui(
+    ctx: &egui::Context,
+    mode: &NetMode,
+    _name: &PlayerName,
+    pending: &mut PendingState,
+    discovered: &mut DiscoveredServers,
+    lobby: &LobbyData,
+    client: Option<&GameClient>,
+    _car_selection: &mut CarSelection,
+    _blaster_selection: &mut BlasterSelection,
+    _ai_enemy_count: &mut AiEnemyCount,
+    _max_hp: &mut MaxHealthPoints,
+    _pending_connect: &mut PendingConnect,
+) {
+    let panel_w = 400.0;
+    let text_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200);
+
+    egui::CentralPanel::default()
+        .frame(egui::Frame {
+            fill: egui::Color32::from_rgba_unmultiplied(20, 20, 20, 255),
+            ..default()
+        })
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(80.0);
+
+                match mode {
+                    NetMode::Host { .. } => {
+                        ui.label(egui::RichText::new("HOSTING GAME").size(24.0).color(text_color).strong());
+                        ui.add_space(20.0);
+                        let players = &lobby.players;
+                        for p in players {
+                            ui.horizontal(|ui| {
+                                ui.add_space(60.0);
+                                let team_str = if lobby.settings.teams_enabled { format!(" [Team {}]", p.team + 1) } else { String::new() };
+                                ui.label(egui::RichText::new(format!("{}{}", p.username, team_str)).size(14.0).color(text_color));
+                                if p.ready {
+                                    ui.label(egui::RichText::new(" ✓").size(14.0).color(egui::Color32::GREEN));
+                                }
+                            });
+                        }
+                        ui.add_space(20.0);
+                        if ui.add_sized([panel_w * 0.5, 36.0], egui::Button::new(
+                            egui::RichText::new("START").size(16.0).color(text_color),
+                        ).fill(egui::Color32::from_rgba_unmultiplied(60, 60, 60, 160))).clicked() {
+                            pending.0 = Some(GameState::Playing);
+                        }
+                    }
+                    NetMode::Client => {
+                        if let Some(client) = client {
+                            if client.connected {
+                                ui.label(egui::RichText::new("CONNECTED").size(18.0).color(egui::Color32::GREEN));
+                                ui.add_space(10.0);
+                                for p in &lobby.players {
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(60.0);
+                                        let team_str = if lobby.settings.teams_enabled { format!(" [Team {}]", p.team + 1) } else { String::new() };
+                                        ui.label(egui::RichText::new(format!("{}{}", p.username, team_str)).size(14.0).color(text_color));
+                                    });
+                                }
+                                ui.add_space(20.0);
+                                ui.label(egui::RichText::new("Waiting for host to start...").size(14.0).color(text_color));
+                            } else {
+                                ui.label(egui::RichText::new("Connecting...").size(18.0).color(text_color));
+                            }
+                        } else {
+                            ui.label(egui::RichText::new("SERVER BROWSER").size(24.0).color(text_color).strong());
+                            ui.add_space(16.0);
+                            for server in discovered.0.clone() {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(60.0);
+                                    let label = format!("{} ({} / {} players)", server.adv.name, server.adv.player_count, server.adv.max_players);
+                                    if ui.add_sized([panel_w * 0.6, 28.0], egui::Button::new(
+                                        egui::RichText::new(label).size(12.0).color(text_color),
+                                    ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                        _pending_connect.0 = Some(server.addr);
+                                        pending.0 = Some(GameState::MultiplayerLobby);
+                                    }
+                                });
+                            }
+                        }
+                    }
+                    NetMode::None => {}
+                }
+
+                ui.add_space(20.0);
+                if ui.add_sized([panel_w * 0.4, 28.0], egui::Button::new(
+                    egui::RichText::new("BACK").size(14.0).color(text_color),
+                ).fill(egui::Color32::from_rgba_unmultiplied(40, 40, 40, 160))).clicked() {
+                    pending.0 = Some(GameState::PreGame);
                 }
             });
         });

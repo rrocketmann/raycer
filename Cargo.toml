@@ -14,6 +14,9 @@ avian3d = { version = "0.6", features = ["collider-from-mesh"] }
 bevy_camera = "0.18"
 rand = "0.9"
 
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+
 [features]
 default = []
 web = ["bevy/webgpu"]

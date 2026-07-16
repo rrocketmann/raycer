@@ -2,9 +2,8 @@ use std::collections::HashSet;
 use bevy::prelude::*;
 use avian3d::prelude::{Collider, SpatialQuery, ShapeCastConfig, SpatialQueryFilter};
 use rand::Rng;
-use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health, SKY_BOUNDARY};
+use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health};
 use crate::GameState;
-use crate::RubberBullets;
 
 #[derive(Clone)]
 pub enum BlasterType {
@@ -326,7 +325,6 @@ fn move_bullets(
     player_query: Query<(), With<PlayerCar>>,
     ai_query: Query<(), With<AiCar>>,
     mut health_query: Query<&mut Health>,
-    rubber_bullets: Res<RubberBullets>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -336,10 +334,6 @@ fn move_bullets(
         if bullet.lifetime.just_finished() {
             commands.entity(entity).despawn();
             continue;
-        }
-
-        if rubber_bullets.enabled && transform.translation.y > SKY_BOUNDARY {
-            bullet.velocity.y = -bullet.velocity.y.abs();
         }
 
         let prev_pos = transform.translation;
@@ -371,15 +365,6 @@ fn move_bullets(
             }
             let hit_pos = prev_pos + direction * hit.distance;
             spawn_smoke_effect(&mut commands, &mut meshes, &mut materials, hit_pos, 3);
-            if rubber_bullets.enabled {
-                let reflected = direction.as_vec3().reflect(hit.normal1).normalize_or_zero();
-                if let Ok(dir) = Dir3::new(reflected) {
-                    bullet.velocity = dir * BULLET_SPEED;
-                }
-                let safe_dist = (hit.distance - BULLET_RADIUS).max(0.0);
-                transform.translation = prev_pos + direction * safe_dist;
-                continue;
-            }
             transform.translation = hit_pos;
             commands.entity(entity).despawn();
             continue;

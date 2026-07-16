@@ -3,11 +3,14 @@ use avian3d::dynamics::solver::SolverConfig;
 use avian3d::prelude::*;
 use rand::Rng;
 
-use crate::car::{PlayerCar, Health, AiCar, ExplosionTimer};
+use crate::car::{PlayerCar, Health, AiCar, ExplosionTimer, CarCamera, CarVisual, CarSelection, CAR_DEFS, mount_y};
+use crate::blaster::{BlasterSelection, BLASTER_DEFS};
+use crate::net::protocol::*;
 
 mod ai;
 mod blaster;
 mod car;
+mod net;
 mod track;
 mod ui;
 
@@ -16,18 +19,19 @@ enum GameState {
     #[default]
     Loading,
     PreGame,
+    MultiplayerLobby,
     Playing,
     Eliminated,
 }
 
-#[derive(Resource)]
-pub struct RubberBullets {
-    pub enabled: bool,
-    pub random: bool,
-}
-
-impl Default for RubberBullets {
-    fn default() -> Self { Self { enabled: false, random: false } }
+#[derive(Resource, Default)]
+pub enum NetMode {
+    #[default]
+    None,
+    Host {
+        server_name: String,
+    },
+    Client,
 }
 
 #[derive(Resource)]
@@ -50,6 +54,22 @@ pub struct PendingState(Option<GameState>);
 struct LoadingAssets {
     handles: Vec<Handle<Scene>>,
 }
+
+#[derive(Resource)]
+pub struct PlayerName(pub String);
+
+impl Default for PlayerName {
+    fn default() -> Self { Self("Player".into()) }
+}
+
+#[derive(Component)]
+pub struct OwnerClient(pub u64);
+
+#[derive(Component)]
+pub struct RemotePlayer;
+
+#[derive(Component)]
+pub struct RemoteBullet;
 
 fn enter_pregame(
     mut commands: Commands,
@@ -140,7 +160,6 @@ fn check_game_state(
 fn resolve_random_options(
     mut enemy_count: ResMut<AiEnemyCount>,
     mut max_hp: ResMut<MaxHealthPoints>,
-    mut rubber_bullets: ResMut<RubberBullets>,
 ) {
     if enemy_count.random {
         enemy_count.count = rand::rng().random_range(0..=10);
@@ -150,10 +169,141 @@ fn resolve_random_options(
         max_hp.hp = rand::rng().random_range(2..=10);
         max_hp.random = false;
     }
-    if rubber_bullets.random {
-        rubber_bullets.enabled = rand::rng().random_bool(0.5);
-        rubber_bullets.random = false;
+}
+
+fn cleanup_multiplayer(mut commands: Commands) {
+    commands.remove_resource::<net::server::GameServer>();
+    commands.remove_resource::<net::client::GameClient>();
+}
+
+#[derive(Resource, Default)]
+pub struct PendingConnect(pub Option<std::net::SocketAddr>);
+
+#[derive(Resource, Default)]
+pub struct PendingHost(pub bool);
+
+fn handle_pending_host(
+    mut commands: Commands,
+    mut ph: ResMut<PendingHost>,
+    ai_count: Res<AiEnemyCount>,
+    max_hp: Res<MaxHealthPoints>,
+    name: Res<PlayerName>,
+    car_selection: Res<CarSelection>,
+    blaster_selection: Res<BlasterSelection>,
+) {
+    if !ph.0 { return; }
+    ph.0 = false;
+    commands.insert_resource(NetMode::Host { server_name: "Raycer Game".into() });
+    let settings = GameSettings {
+        max_hp: max_hp.hp,
+        ai_count: ai_count.count,
+        ..default()
+    };
+    match net::server::GameServer::new(settings, name.0.clone()) {
+        Ok(mut server) => {
+            server.player_info.push(PlayerInfo {
+                client_id: 0,
+                username: name.0.clone(),
+                car_index: car_selection.display_index(),
+                blaster_index: blaster_selection.display_index(),
+                team: 0,
+                health: max_hp.hp,
+                alive: true,
+                ready: true,
+            });
+            commands.insert_resource(server);
+        }
+        Err(e) => error!("Failed to start server: {}", e),
     }
+}
+
+fn handle_pending_connect(
+    mut commands: Commands,
+    mut pending: ResMut<PendingConnect>,
+    name: Res<PlayerName>,
+    car_selection: Res<CarSelection>,
+    blaster_selection: Res<BlasterSelection>,
+) {
+    if let Some(addr) = pending.0.take() {
+        match net::client::GameClient::connect(addr) {
+            Ok(client) => {
+                client.send_hello(&name.0, car_selection.display_index(), blaster_selection.display_index());
+                commands.insert_resource(client);
+            }
+            Err(e) => error!("Failed to connect: {}", e),
+        }
+    }
+}
+
+fn start_broadcast_receiver(
+    mut commands: Commands,
+    mode: Res<NetMode>,
+) {
+    if let NetMode::Client = &*mode {
+        match net::socket::BroadcastReceiver::start() {
+            Ok(r) => { commands.insert_resource(net::client::ClientBroadcastReceiver(r)); }
+            Err(e) => error!("broadcast receiver: {}", e),
+        }
+    }
+}
+
+fn apply_client_snapshot(
+    mut commands: Commands,
+    snapshot: Res<net::client::ReceivedSnapshot>,
+    client: Option<Res<net::client::GameClient>>,
+    asset_server: Res<AssetServer>,
+    existing: Query<(Entity, &OwnerClient)>,
+) {
+    if snapshot.is_changed() && client.is_some() {
+        let mut seen: Vec<u64> = Vec::new();
+        for car in &snapshot.cars {
+            seen.push(car.client_id);
+            let exists = existing.iter().any(|(_, oc)| oc.0 == car.client_id);
+            if !exists {
+                let pos = Vec3::new(car.position[0], car.position[1], car.position[2]);
+                let rot = Quat::from_array(car.rotation);
+                let def = &CAR_DEFS[car.car_index.min(CAR_DEFS.len() - 1)];
+                let car_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(def.path));
+                let blaster_def = &BLASTER_DEFS[car.blaster_index.min(BLASTER_DEFS.len() - 1)];
+                let blaster_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(blaster_def.path));
+                let mount = Vec3::new(0.0, mount_y(def.collider.y), 0.0);
+                commands.spawn((
+                    RemotePlayer,
+                    OwnerClient(car.client_id),
+                    Transform::from_translation(pos).with_rotation(rot),
+                    Visibility::Visible,
+                )).with_children(|parent| {
+                    parent.spawn((SceneRoot(car_scene), CarVisual));
+                    parent.spawn((
+                        SceneRoot(blaster_scene),
+                        Transform::from_translation(mount)
+                            .with_scale(Vec3::splat(blaster_def.scale))
+                            .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                    ));
+                });
+            } else {
+                for (entity, oc) in existing.iter() {
+                    if oc.0 == car.client_id {
+                        commands.entity(entity).insert(
+                            Transform::from_translation(
+                                Vec3::new(car.position[0], car.position[1], car.position[2])
+                            ).with_rotation(Quat::from_array(car.rotation))
+                        );
+                    }
+                }
+            }
+        }
+        let to_despawn: Vec<Entity> = existing.iter().filter(|(_, oc)| !seen.contains(&oc.0)).map(|(e, _)| e).collect();
+        for e in to_despawn {
+            commands.entity(e).despawn();
+        }
+    }
+}
+
+fn _attach_camera_to_own_car(
+    client: Option<Res<net::client::GameClient>>,
+) {
+    let _ = client;
 }
 
 fn main() {
@@ -179,14 +329,30 @@ fn main() {
         .add_plugins(bevy_egui::EguiPlugin::default())
         .init_state::<GameState>()
         .init_resource::<AiEnemyCount>()
-        .init_resource::<RubberBullets>()
         .init_resource::<MaxHealthPoints>()
         .init_resource::<GameOutcome>()
         .init_resource::<PendingState>()
+        .init_resource::<NetMode>()
+        .init_resource::<PlayerName>()
+        .init_resource::<PendingConnect>()
+        .init_resource::<PendingHost>()
+        .init_resource::<net::client::DiscoveredServers>()
+        .init_resource::<net::client::ReceivedSnapshot>()
+        .init_resource::<net::client::LobbyData>()
         .add_systems(OnEnter(GameState::Playing), resolve_random_options)
+        .add_systems(OnEnter(GameState::MultiplayerLobby), start_broadcast_receiver)
+        .add_systems(OnExit(GameState::MultiplayerLobby), cleanup_multiplayer)
+        .add_systems(OnExit(GameState::Playing), cleanup_multiplayer)
         .add_systems(Update, enter_pregame.run_if(in_state(GameState::Loading)))
         .add_systems(Update, check_game_state.run_if(in_state(GameState::Playing)))
         .add_systems(Update, apply_pending_state)
+        .add_systems(Update, (handle_pending_host, handle_pending_connect))
+        .add_systems(Update, apply_client_snapshot)
+        .add_systems(Update, (
+            net::server::server_broadcast_system,
+            net::client::discovery_listen_system,
+            net::client::client_receive_system,
+        ))
         .add_plugins((ai::AiPlugin, blaster::BlasterPlugin, car::CarPlugin, track::TrackPlugin, ui::UiPlugin));
 
     #[cfg(feature = "dev")]
