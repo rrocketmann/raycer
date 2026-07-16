@@ -103,7 +103,7 @@ fn spawn_world(
 
     commands.entity(car_root).with_children(|parent| {
         parent.spawn((
-            Collider::round_cuboid(def.collider.x, def.collider.y, def.collider.z, 0.3),
+            Collider::round_cuboid(def.collider.x - 0.2, def.collider.y - 0.2, def.collider.z - 0.2, 0.1),
             Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
             CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
             CarCollider,

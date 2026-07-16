@@ -7,7 +7,6 @@ use crate::GameState;
 use crate::AiEnemyCount;
 use crate::MaxHealthPoints;
 use crate::NetMode;
-use crate::RoundCountdown;
 use crate::{CarModelIndex, BlasterModelIndex, Team};
 use rand::Rng;
 
@@ -112,7 +111,7 @@ fn spawn_ai_cars(
 
         commands.entity(ai_root).with_children(|parent| {
             parent.spawn((
-                Collider::round_cuboid(def.collider.x, def.collider.y, def.collider.z, 0.3),
+                Collider::round_cuboid(def.collider.x - 0.2, def.collider.y - 0.2, def.collider.z - 0.2, 0.1),
                 Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
                 CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
             ));
@@ -236,9 +235,7 @@ fn ai_shoot(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    countdown: Option<Res<RoundCountdown>>,
 ) {
-    if let Some(cd) = countdown { if cd.0.remaining_secs() > 0.0 { return; } }
     let Ok((player_entity, player_global)) = player_query.single() else { return };
     let target_pos = player_global.translation();
     let color = Srgba::hex("ff0000").unwrap();
@@ -327,17 +324,15 @@ fn ai_drive(
     mut ai_query: Query<(&AiConfig, &mut LinearVelocity, &Position, &Rotation), With<AiCar>>,
     player_query: Query<&Position, (With<PlayerCar>, Without<AiCar>)>,
     time: Res<Time>,
-    countdown: Option<Res<RoundCountdown>>,
 ) {
     let Ok(player_pos) = player_query.single() else { return };
     let max_speed = 60.0;
-    let fleeing = countdown.is_some() && countdown.unwrap().0.remaining_secs() > 0.0;
 
     for (_config, mut velocity, pos, rot) in ai_query.iter_mut() {
         let to_player = player_pos.0 - pos.0;
         let dist = to_player.length();
 
-        if fleeing || dist < 15.0 {
+        if dist < 15.0 {
             let flee_dir = -to_player.normalize_or(Vec3::Z);
             let flat_flee = Vec3::new(flee_dir.x, 0.0, flee_dir.z).normalize_or(Vec3::Z);
             let target = flat_flee * max_speed;

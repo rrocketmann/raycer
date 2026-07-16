@@ -3,7 +3,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::car::{CarSelection, Telemetry, CAR_DEFS};
 use crate::blaster::{BlasterSelection, WeaponCharge, BLASTER_DEFS};
-use crate::{GameState, AiEnemyCount, MaxHealthPoints, GameOutcome, PendingState, NetMode, PlayerName, PendingConnect, PendingHost, RoundCountdown};
+use crate::{GameState, AiEnemyCount, MaxHealthPoints, GameOutcome, PendingState, NetMode, PlayerName, PendingConnect, PendingHost};
 use crate::net::client::{DiscoveredServers, LobbyData, GameClient};
 
 pub struct UiPlugin;
@@ -67,7 +67,6 @@ fn playing_ui_system(
     keys: Res<ButtonInput<KeyCode>>,
     charge: Res<WeaponCharge>,
     blaster_selection: Res<BlasterSelection>,
-    countdown: Option<Res<crate::RoundCountdown>>,
     client: Option<Res<GameClient>>,
     server: Option<Res<crate::net::server::GameServer>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<crate::car::CarCamera>>,
@@ -79,7 +78,7 @@ fn playing_ui_system(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-    playing_ui(ctx, &telemetry, &keys, &charge, &blaster_selection, countdown.as_deref());
+    playing_ui(ctx, &telemetry, &keys, &charge, &blaster_selection);
 
     let is_multiplayer = client.is_some() || server.is_some();
     if !is_multiplayer { return; }
@@ -113,17 +112,14 @@ fn playing_ui_system(
 }
 
 fn draw_nametag(ui: &mut egui::Ui, camera: &Camera, cam_global: &GlobalTransform, tf: &Transform, label: &str) {
-    let Ok(pos) = camera.world_to_viewport(cam_global, tf.translation + Vec3::new(0.0, 3.0, 0.0)) else { return };
+    let Ok(pos) = camera.world_to_viewport(cam_global, tf.translation + Vec3::new(0.0, 2.5, 0.0)) else { return };
     let screen_pos = egui::pos2(pos.x, pos.y - 24.0);
-    let is_enemy = label == "ENEMY";
-    let text_color = if is_enemy { egui::Color32::from_rgba_unmultiplied(255, 80, 80, 255) } else { egui::Color32::from_rgba_unmultiplied(80, 255, 80, 255) };
-    let border_color = if is_enemy { egui::Color32::from_rgba_unmultiplied(255, 40, 40, 200) } else { egui::Color32::from_rgba_unmultiplied(40, 200, 40, 200) };
     let painter = ui.painter();
     let bw = (label.len() as f32 * 8.0 + 20.0).max(60.0);
     let bg_rect = egui::Rect::from_center_size(screen_pos, egui::vec2(bw, 20.0));
     painter.rect_filled(bg_rect, 3.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180));
-    painter.rect_stroke(bg_rect, 3.0, egui::Stroke::new(1.0, border_color), egui::StrokeKind::Outside);
-    painter.text(screen_pos, egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(13.0), text_color);
+    painter.rect_stroke(bg_rect, 3.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 200, 50, 200)), egui::StrokeKind::Outside);
+    painter.text(screen_pos, egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(13.0), egui::Color32::from_rgba_unmultiplied(255, 255, 255, 255));
 }
 
 fn death_ui_system(mut contexts: EguiContexts, outcome: Res<GameOutcome>, mut pending: ResMut<PendingState>) {
@@ -446,7 +442,7 @@ fn death_ui(ctx: &egui::Context, outcome: &GameOutcome, pending: &mut PendingSta
 }
 
 // ── PLAYING HUD ──
-fn playing_ui(ctx: &egui::Context, telemetry: &Telemetry, keys: &ButtonInput<KeyCode>, charge: &WeaponCharge, bs: &BlasterSelection, countdown: Option<&RoundCountdown>) {
+fn playing_ui(ctx: &egui::Context, telemetry: &Telemetry, keys: &ButtonInput<KeyCode>, charge: &WeaponCharge, bs: &BlasterSelection) {
     let w_ = |k: KeyCode| keys.pressed(k);
     let w = w_(KeyCode::KeyW) || w_(KeyCode::ArrowUp);
     let a = w_(KeyCode::KeyA) || w_(KeyCode::ArrowLeft);
@@ -454,17 +450,6 @@ fn playing_ui(ctx: &egui::Context, telemetry: &Telemetry, keys: &ButtonInput<Key
     let d = w_(KeyCode::KeyD) || w_(KeyCode::ArrowRight);
     let sp = w_(KeyCode::Space);
     let shift = w_(KeyCode::ShiftLeft) || w_(KeyCode::ShiftRight);
-
-    if let Some(cd) = countdown {
-        if cd.0.remaining_secs() > 0.0 {
-            let secs = cd.0.remaining_secs().ceil() as u32;
-            let label = if secs == 0 { "FIGHT!".to_string() } else { format!("{}..", secs) };
-            let alpha = if secs <= 1 { ((cd.0.remaining_secs() * 3.0).sin().abs() * 0.4 + 0.6) as u8 } else { 220 };
-            egui::Area::new("countdown".into()).anchor(egui::Align2::CENTER_CENTER, [0.0, -120.0]).show(ctx, |ui| {
-                ui.label(egui::RichText::new(&label).size(64.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha)).strong());
-            });
-        }
-    }
 
     let def = &BLASTER_DEFS[bs.display_index()];
     let cr = (charge.0 / def.capacity).min(1.0);
