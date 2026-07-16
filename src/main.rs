@@ -77,6 +77,15 @@ pub struct CarModelIndex(pub usize);
 #[derive(Component)]
 pub struct BlasterModelIndex(pub usize);
 
+#[derive(Component, Clone, Copy)]
+pub struct Team(pub u8);
+
+#[derive(Component, Clone)]
+pub struct BulletOwner {
+    pub client_id: u64,
+    pub team: u8,
+}
+
 fn enter_pregame(
     mut commands: Commands,
     asset_server: Res<AssetServer>,

@@ -7,7 +7,7 @@ use crate::GameState;
 use crate::AiEnemyCount;
 use crate::MaxHealthPoints;
 use crate::NetMode;
-use crate::{CarModelIndex, BlasterModelIndex};
+use crate::{CarModelIndex, BlasterModelIndex, Team};
 use rand::Rng;
 
 #[derive(Component)]
@@ -106,6 +106,7 @@ fn spawn_ai_cars(
             AiConfig { car_index, blaster_index },
             CarModelIndex(car_index),
             BlasterModelIndex(blaster_index),
+            Team(0),
         ));
 
         commands.entity(ai_root).with_children(|parent| {
@@ -278,14 +279,15 @@ fn ai_shoot(
             exclude.insert(desc);
         }
 
+        let bo: Option<crate::BulletOwner> = None;
         match &blaster_def.blaster_type {
             crate::blaster::BlasterType::Single | crate::blaster::BlasterType::Sniper => {
-                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, blaster_def.damage, exclude, color, emissive);
+                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, blaster_def.damage, exclude, color, emissive, bo);
             }
             crate::blaster::BlasterType::Double => {
                 let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
-                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos + right * 0.3, base_dir, blaster_def.damage, exclude.clone(), color, emissive);
-                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos - right * 0.3, base_dir, blaster_def.damage, exclude, color, emissive);
+                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos + right * 0.3, base_dir, blaster_def.damage, exclude.clone(), color, emissive, bo.clone());
+                crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos - right * 0.3, base_dir, blaster_def.damage, exclude, color, emissive, bo);
             }
             crate::blaster::BlasterType::Shotgun { pellets, spread } => {
                 let pellets = *pellets;
@@ -293,13 +295,13 @@ fn ai_shoot(
                 for _ in 0..pellets {
                     let s = Vec3::new(rng.random_range(-spread..spread), rng.random_range(-spread..spread), rng.random_range(-spread..spread));
                     let dir = (base_dir + s).normalize_or(base_dir);
-                    crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, dir, blaster_def.damage, exclude.clone(), color, emissive);
+                    crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, dir, blaster_def.damage, exclude.clone(), color, emissive, bo.clone());
                 }
             }
             crate::blaster::BlasterType::Burst { count, .. } => {
                 let count = *count;
                 for _ in 0..count {
-                    crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, blaster_def.damage, exclude.clone(), color, emissive);
+                    crate::blaster::spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, blaster_def.damage, exclude.clone(), color, emissive, bo.clone());
                 }
             }
         }

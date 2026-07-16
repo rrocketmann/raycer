@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use avian3d::prelude::{Collider, SpatialQuery, ShapeCastConfig, SpatialQueryFilter};
 use rand::Rng;
 use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health};
-use crate::GameState;
+use crate::{GameState, Team};
 use crate::NetMode;
 
 #[derive(Clone)]
@@ -231,8 +231,9 @@ pub fn spawn_bullet(
     exclude: HashSet<Entity>,
     color: Srgba,
     emissive: LinearRgba,
+    bullet_owner: Option<crate::BulletOwner>,
 ) {
-    commands.spawn((
+    let mut cmd = commands.spawn((
         Mesh3d(meshes.add(Sphere::new(0.8).mesh().ico(2).unwrap())),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: color.into(),
@@ -247,6 +248,9 @@ pub fn spawn_bullet(
         },
         ExcludeMeshRayCast(exclude),
     ));
+    if let Some(bo) = bullet_owner {
+        cmd.insert(bo);
+    }
 }
 
 fn player_shoot(
@@ -284,6 +288,7 @@ fn player_shoot(
 
     let color = Srgba::hex("ff0000").unwrap();
     let emissive = LinearRgba::new(8.0, 0.0, 0.0, 1.0);
+    let bullet_owner = Some(crate::BulletOwner { client_id: 0, team: 0 });
     let shot_cost = match &def.blaster_type {
         BlasterType::Single | BlasterType::Sniper => 1.0,
         BlasterType::Double => 2.0,
@@ -296,12 +301,12 @@ fn player_shoot(
 
     match &def.blaster_type {
         BlasterType::Single | BlasterType::Sniper => {
-            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, def.damage, exclude, color, emissive);
+            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, def.damage, exclude, color, emissive, bullet_owner);
         }
         BlasterType::Double => {
             let right = base_dir.cross(Vec3::Y).normalize_or(Vec3::X);
-            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos + right * 0.3, base_dir, def.damage, exclude.clone(), color, emissive);
-            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos - right * 0.3, base_dir, def.damage, exclude, color, emissive);
+            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos + right * 0.3, base_dir, def.damage, exclude.clone(), color, emissive, bullet_owner.clone());
+            spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos - right * 0.3, base_dir, def.damage, exclude, color, emissive, bullet_owner);
         }
         BlasterType::Shotgun { pellets, spread } => {
             let pellets = *pellets;
@@ -310,31 +315,35 @@ fn player_shoot(
             for _ in 0..pellets {
                 let s = Vec3::new(rng.random_range(-spread..spread), rng.random_range(-spread..spread), rng.random_range(-spread..spread));
                 let dir = (base_dir + s).normalize_or(base_dir);
-                spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, dir, def.damage, exclude.clone(), color, emissive);
+                spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, dir, def.damage, exclude.clone(), color, emissive, bullet_owner.clone());
             }
         }
         BlasterType::Burst { count, .. } => {
             let count = *count;
             for _ in 0..count {
-                spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, def.damage, exclude.clone(), color, emissive);
+                spawn_bullet(&mut commands, &mut meshes, &mut materials, spawn_pos, base_dir, def.damage, exclude.clone(), color, emissive, bullet_owner.clone());
             }
         }
     }
 }
 
 fn move_bullets(
-    mut bullet_query: Query<(Entity, &mut Transform, &mut Bullet, &ExcludeMeshRayCast)>,
+    mut bullet_query: Query<(Entity, &mut Transform, &mut Bullet, &ExcludeMeshRayCast, Option<&crate::BulletOwner>)>,
     time: Res<Time>,
     spatial_query: SpatialQuery,
     parent_query: Query<&ChildOf>,
     player_query: Query<(), With<PlayerCar>>,
     ai_query: Query<(), With<AiCar>>,
     mut health_query: Query<&mut Health>,
+    team_query: Query<&Team>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (entity, mut transform, mut bullet, exclude_ray) in bullet_query.iter_mut() {
+    for (entity, mut transform, mut bullet, exclude_ray, bullet_owner) in bullet_query.iter_mut() {
+        
+    // Original code continues...
+
         bullet.lifetime.tick(time.delta());
         if bullet.lifetime.just_finished() {
             commands.entity(entity).despawn();
@@ -362,7 +371,10 @@ fn move_bullets(
         if let Some(hit) = spatial_query.cast_shape(&shape, prev_pos, Quat::IDENTITY, direction, &config, &filter) {
             if let Some(car_entity) = find_car_ancestor(hit.entity, &parent_query, &player_query, &ai_query) {
                 if let Ok(mut health) = health_query.get_mut(car_entity) {
-                    health.0 = health.0.saturating_sub(bullet.damage);
+                    let friendly = bullet_owner.and_then(|bo| team_query.get(car_entity).ok().map(|t| bo.team == t.0 && bo.team != 0)).unwrap_or(false);
+                    if !friendly {
+                        health.0 = health.0.saturating_sub(bullet.damage);
+                    }
                 }
                 transform.translation = prev_pos + direction * hit.distance;
                 commands.entity(entity).despawn();
