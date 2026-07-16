@@ -193,9 +193,9 @@ fn start_server_game(mut server: Option<ResMut<net::server::GameServer>>) {
     }
 }
 
-fn stop_server_game(mut server: Option<ResMut<net::server::GameServer>>) {
-    if let Some(mut server) = server {
-        server.game_started = false;
+fn stop_server_game(server: Option<ResMut<net::server::GameServer>>) {
+    if let Some(mut s) = server {
+        s.game_started = false;
     }
 }
 
@@ -391,6 +391,7 @@ fn main() {
         .add_systems(Update, (
             net::server::server_broadcast_system,
             net::server::server_snapshot_system,
+            net::server::respawn_system,
             net::server::apply_client_inputs,
             net::server::handle_server_connections,
             net::client::discovery_listen_system,

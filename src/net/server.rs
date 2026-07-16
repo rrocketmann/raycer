@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use bevy::prelude::*;
-use crate::car::{PlayerCar, AiCar, Health, CAR_DEFS};
+use crate::car::Health;
 use crate::net::protocol::*;
 use crate::net::socket::NetworkThread;
 use crate::{OwnerClient, CarModelIndex, BlasterModelIndex};
@@ -202,12 +202,10 @@ pub fn server_snapshot_system(
 }
 
 pub fn spawn_client_cars(
-    server: Res<GameServer>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    _server: Res<GameServer>,
+    _commands: Commands,
+    _asset_server: Res<AssetServer>,
 ) {
-    let _ = server;
-    let _ = asset_server;
 }
 
 pub fn apply_client_inputs(
@@ -225,11 +223,27 @@ pub fn apply_client_inputs(
     }
 }
 
-// We'll also need to handle client car spawn when they connect while game is running.
-// For now, they join at lobby only.
+#[derive(Component)]
+pub struct RespawnTimer(pub Timer);
+
+pub fn respawn_system(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut Transform, &mut Health, &mut RespawnTimer)>,
+) {
+    for (entity, mut tf, mut health, mut timer) in query.iter_mut() {
+        timer.0.tick(time.delta());
+        if timer.0.just_finished() {
+            health.0 = 10;
+            let angle = rand::random::<f32>() * std::f32::consts::TAU;
+            tf.translation = Vec3::new(angle.cos() * 30.0, 3.0, angle.sin() * 30.0);
+            commands.entity(entity).remove::<RespawnTimer>();
+        }
+    }
+}
+
 pub fn handle_server_connections(
     mut server: Option<ResMut<GameServer>>,
-    mut _commands: Commands,
 ) {
     let Some(ref mut server) = server else { return };
     server.handle_messages();

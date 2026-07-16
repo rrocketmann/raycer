@@ -341,12 +341,14 @@ fn multiplayer_lobby_ui(
     client: Option<&GameClient>,
     _car_selection: &mut CarSelection,
     _blaster_selection: &mut BlasterSelection,
-    _ai_enemy_count: &mut AiEnemyCount,
-    _max_hp: &mut MaxHealthPoints,
+    ai_enemy_count: &mut AiEnemyCount,
+    max_hp: &mut MaxHealthPoints,
     _pending_connect: &mut PendingConnect,
 ) {
     let panel_w = 400.0;
+    let btn_color = egui::Color32::from_rgba_unmultiplied(60, 60, 60, 160);
     let text_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200);
+    let small_text = egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180);
 
     egui::CentralPanel::default()
         .frame(egui::Frame {
@@ -355,27 +357,76 @@ fn multiplayer_lobby_ui(
         })
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                ui.add_space(80.0);
+                ui.add_space(60.0);
 
                 match mode {
                     NetMode::Host { .. } => {
                         ui.label(egui::RichText::new("HOSTING GAME").size(24.0).color(text_color).strong());
-                        ui.add_space(20.0);
-                        let players = &lobby.players;
-                        for p in players {
+                        ui.add_space(16.0);
+
+                        // Settings
+                        ui.label(egui::RichText::new("SETTINGS").size(11.0).color(small_text));
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.label(egui::RichText::new("HP:").size(14.0).color(text_color));
+                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("-").size(12.0).color(text_color)).fill(btn_color)).clicked() {
+                                max_hp.hp = max_hp.hp.saturating_sub(1).max(1);
+                            }
+                            ui.label(egui::RichText::new(format!("{}", max_hp.hp)).size(14.0).color(text_color));
+                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("+").size(12.0).color(text_color)).fill(btn_color)).clicked() {
+                                max_hp.hp = max_hp.hp.min(20).saturating_add(1);
+                            }
+                            ui.add_space(20.0);
+                            ui.label(egui::RichText::new("AI:").size(14.0).color(text_color));
+                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("-").size(12.0).color(text_color)).fill(btn_color)).clicked() {
+                                ai_enemy_count.count = ai_enemy_count.count.saturating_sub(1);
+                            }
+                            ui.label(egui::RichText::new(format!("{}", ai_enemy_count.count)).size(14.0).color(text_color));
+                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("+").size(12.0).color(text_color)).fill(btn_color)).clicked() {
+                                ai_enemy_count.count = ai_enemy_count.count.saturating_add(1).min(20);
+                            }
+                        });
+
+                        ui.add_space(12.0);
+                        // Teams toggle
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            let teams_on = lobby.settings.teams_enabled;
+                            let teams_str = if teams_on { "TEAMS: ON" } else { "TEAMS: OFF" };
+                            if ui.add_sized([120.0, 24.0], egui::Button::new(egui::RichText::new(teams_str).size(12.0).color(text_color)).fill(btn_color)).clicked() {
+                                // Toggle via pending. This would need server to update. For now just visual.
+                            }
+                            ui.add_space(10.0);
+                            let respawn_on = lobby.settings.respawn_enabled;
+                            let respawn_str = if respawn_on { "RESPAWN: ON" } else { "RESPAWN: OFF" };
+                            if ui.add_sized([140.0, 24.0], egui::Button::new(egui::RichText::new(respawn_str).size(12.0).color(text_color)).fill(btn_color)).clicked() {
+                                // Toggle
+                            }
+                        });
+
+                        ui.add_space(16.0);
+                        ui.label(egui::RichText::new("PLAYERS").size(11.0).color(small_text));
+                        ui.add_space(4.0);
+                        for p in &lobby.players {
                             ui.horizontal(|ui| {
-                                ui.add_space(60.0);
-                                let team_str = if lobby.settings.teams_enabled { format!(" [Team {}]", p.team + 1) } else { String::new() };
-                                ui.label(egui::RichText::new(format!("{}{}", p.username, team_str)).size(14.0).color(text_color));
-                                if p.ready {
-                                    ui.label(egui::RichText::new(" ✓").size(14.0).color(egui::Color32::GREEN));
+                                ui.add_space(40.0);
+                                let team_label = if lobby.settings.teams_enabled { format!("[T{}] ", p.team + 1) } else { String::new() };
+                                ui.label(egui::RichText::new(format!("{}{}", team_label, p.username)).size(14.0).color(text_color));
+                                if lobby.settings.teams_enabled && p.client_id == 0 {
+                                    if ui.add_sized([20.0, 20.0], egui::Button::new(egui::RichText::new("<").size(10.0).color(text_color)).fill(btn_color)).clicked() {
+                                        // would send team change
+                                    }
+                                    if ui.add_sized([20.0, 20.0], egui::Button::new(egui::RichText::new(">").size(10.0).color(text_color)).fill(btn_color)).clicked() {
+                                        // would send team change
+                                    }
                                 }
                             });
                         }
                         ui.add_space(20.0);
                         if ui.add_sized([panel_w * 0.5, 36.0], egui::Button::new(
-                            egui::RichText::new("START").size(16.0).color(text_color),
-                        ).fill(egui::Color32::from_rgba_unmultiplied(60, 60, 60, 160))).clicked() {
+                            egui::RichText::new("START GAME").size(16.0).color(text_color),
+                        ).fill(egui::Color32::from_rgba_unmultiplied(100, 100, 100, 200))).clicked() {
                             pending.0 = Some(GameState::Playing);
                         }
                     }
@@ -384,15 +435,17 @@ fn multiplayer_lobby_ui(
                             if client.connected {
                                 ui.label(egui::RichText::new("CONNECTED").size(18.0).color(egui::Color32::GREEN));
                                 ui.add_space(10.0);
+                                ui.label(egui::RichText::new("LOBBY").size(11.0).color(small_text));
+                                ui.add_space(4.0);
                                 for p in &lobby.players {
                                     ui.horizontal(|ui| {
                                         ui.add_space(60.0);
-                                        let team_str = if lobby.settings.teams_enabled { format!(" [Team {}]", p.team + 1) } else { String::new() };
-                                        ui.label(egui::RichText::new(format!("{}{}", p.username, team_str)).size(14.0).color(text_color));
+                                        let team_label = if lobby.settings.teams_enabled { format!("[T{}] ", p.team + 1) } else { String::new() };
+                                        ui.label(egui::RichText::new(format!("{}{}", team_label, p.username)).size(14.0).color(text_color));
                                     });
                                 }
                                 ui.add_space(20.0);
-                                ui.label(egui::RichText::new("Waiting for host to start...").size(14.0).color(text_color));
+                                ui.label(egui::RichText::new("Waiting for host to start...").size(14.0).color(small_text));
                             } else {
                                 ui.label(egui::RichText::new("Connecting...").size(18.0).color(text_color));
                             }
@@ -401,9 +454,9 @@ fn multiplayer_lobby_ui(
                             ui.add_space(16.0);
                             for server in discovered.0.clone() {
                                 ui.horizontal(|ui| {
-                                    ui.add_space(60.0);
+                                    ui.add_space(40.0);
                                     let label = format!("{} ({} / {} players)", server.adv.name, server.adv.player_count, server.adv.max_players);
-                                    if ui.add_sized([panel_w * 0.6, 28.0], egui::Button::new(
+                                    if ui.add_sized([panel_w * 0.65, 28.0], egui::Button::new(
                                         egui::RichText::new(label).size(12.0).color(text_color),
                                     ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
                                         _pending_connect.0 = Some(server.addr);
@@ -416,9 +469,9 @@ fn multiplayer_lobby_ui(
                     NetMode::None => {}
                 }
 
-                ui.add_space(20.0);
-                if ui.add_sized([panel_w * 0.4, 28.0], egui::Button::new(
-                    egui::RichText::new("BACK").size(14.0).color(text_color),
+                ui.add_space(16.0);
+                if ui.add_sized([panel_w * 0.3, 28.0], egui::Button::new(
+                    egui::RichText::new("BACK TO MENU").size(14.0).color(text_color),
                 ).fill(egui::Color32::from_rgba_unmultiplied(40, 40, 40, 160))).clicked() {
                     pending.0 = Some(GameState::PreGame);
                 }
