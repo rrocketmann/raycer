@@ -116,7 +116,7 @@ pub fn spawn_health_indicators(
     let start_x = -total_width * 0.5;
     let y_offset = collider_y + 2.5;
     let mesh = meshes.add(Cuboid::new(square_size, square_size, square_size));
-    let material = materials.add(Color::srgb(0.45, 0.45, 0.45));
+    let material = materials.add(Color::srgb(0.82, 0.69, 0.27));
 
     for i in 0..count {
         let x = start_x + i as f32 * gap;
@@ -898,7 +898,7 @@ fn switch_car_model(
 
     commands.entity(car_entity).with_children(|parent| {
         parent.spawn((
-            Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
+            Collider::round_cuboid(def.collider.x, def.collider.y, def.collider.z, 0.3),
             Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
             CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
             CarCollider,
@@ -948,7 +948,7 @@ fn switch_car_model_pregame(
 
     commands.entity(car_entity).with_children(|parent| {
         parent.spawn((
-            Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
+            Collider::round_cuboid(def.collider.x, def.collider.y, def.collider.z, 0.3),
             Transform::from_translation(Vec3::new(0.0, half_height, 0.0)),
             CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
             CarCollider,

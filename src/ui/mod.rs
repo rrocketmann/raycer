@@ -68,10 +68,12 @@ fn playing_ui_system(
     charge: Res<WeaponCharge>,
     blaster_selection: Res<BlasterSelection>,
     countdown: Option<Res<crate::RoundCountdown>>,
+    client: Option<Res<GameClient>>,
+    server: Option<Res<crate::net::server::GameServer>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<crate::car::CarCamera>>,
-    car_query: Query<(&Transform, &crate::car::Health, Option<&crate::OwnerClient>), (With<crate::car::PlayerCar>, Without<crate::car::AiCar>)>,
-    ai_query: Query<(&Transform, &crate::car::Health), With<crate::car::AiCar>>,
-    remote_query: Query<(&Transform, &crate::OwnerClient), With<crate::RemotePlayer>>,
+    cars: Query<(&Transform, Option<&crate::OwnerClient>, Option<&crate::Team>), (With<crate::car::PlayerCar>, Without<crate::car::AiCar>)>,
+    ais: Query<(&Transform, Option<&crate::OwnerClient>, Option<&crate::Team>), With<crate::car::AiCar>>,
+    remotes: Query<(&Transform, &crate::OwnerClient, Option<&crate::Team>), With<crate::RemotePlayer>>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -79,33 +81,49 @@ fn playing_ui_system(
     };
     playing_ui(ctx, &telemetry, &keys, &charge, &blaster_selection, countdown.as_deref());
 
+    let is_multiplayer = client.is_some() || server.is_some();
+    if !is_multiplayer { return; }
+
+    let my_id = client.as_deref().map(|c| c.client_id).unwrap_or(0);
+    let my_team = cars.iter().next().and_then(|(_, _, t)| t.copied()).unwrap_or(crate::Team(0));
+
     let Ok((camera, cam_global)) = camera_query.single() else { return };
 
     egui::Area::new(egui::Id::new("nametags"))
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
-            for (tf, health, _owner) in car_query.iter() {
-                draw_nametag(ui, camera, cam_global, tf, health.0);
+            for (tf, owner, team) in cars.iter() {
+                let oid = owner.map(|o| o.0).unwrap_or(0);
+                if oid == my_id { continue; }
+                let label = if team.map(|t| t.0).unwrap_or(0) == my_team.0 && my_team.0 != 0 { "FRIENDLY" } else { "ENEMY" };
+                draw_nametag(ui, camera, cam_global, tf, label);
             }
-            for (tf, health) in ai_query.iter() {
-                draw_nametag(ui, camera, cam_global, tf, health.0);
+            for (tf, owner, team) in ais.iter() {
+                let oid = owner.map(|o| o.0).unwrap_or(u64::MAX);
+                if oid == my_id { continue; }
+                let label = if team.map(|t| t.0).unwrap_or(0) == my_team.0 && my_team.0 != 0 { "FRIENDLY" } else { "ENEMY" };
+                draw_nametag(ui, camera, cam_global, tf, label);
             }
-            for (tf, _owner) in remote_query.iter() {
-                draw_nametag(ui, camera, cam_global, tf, 0);
+            for (tf, owner, team) in remotes.iter() {
+                if owner.0 == my_id { continue; }
+                let label = if team.map(|t| t.0).unwrap_or(0) == my_team.0 && my_team.0 != 0 { "FRIENDLY" } else { "ENEMY" };
+                draw_nametag(ui, camera, cam_global, tf, label);
             }
         });
 }
 
-fn draw_nametag(ui: &mut egui::Ui, camera: &Camera, cam_global: &GlobalTransform, tf: &Transform, health: u8) {
+fn draw_nametag(ui: &mut egui::Ui, camera: &Camera, cam_global: &GlobalTransform, tf: &Transform, label: &str) {
     let Ok(pos) = camera.world_to_viewport(cam_global, tf.translation + Vec3::new(0.0, 3.0, 0.0)) else { return };
-    let screen_pos = egui::pos2(pos.x, pos.y - 22.0);
-    let text = format!("{} HP", health);
+    let screen_pos = egui::pos2(pos.x, pos.y - 24.0);
+    let is_enemy = label == "ENEMY";
+    let text_color = if is_enemy { egui::Color32::from_rgba_unmultiplied(255, 80, 80, 255) } else { egui::Color32::from_rgba_unmultiplied(80, 255, 80, 255) };
+    let border_color = if is_enemy { egui::Color32::from_rgba_unmultiplied(255, 40, 40, 200) } else { egui::Color32::from_rgba_unmultiplied(40, 200, 40, 200) };
     let painter = ui.painter();
-    let bw = text.len() as f32 * 7.0 + 12.0;
-    let bg_rect = egui::Rect::from_center_size(screen_pos, egui::vec2(bw, 18.0));
-    painter.rect_filled(bg_rect, 2.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180));
-    painter.rect_stroke(bg_rect, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 200, 50, 200)), egui::StrokeKind::Outside);
-    painter.text(screen_pos, egui::Align2::CENTER_CENTER, text, egui::FontId::proportional(12.0), egui::Color32::from_rgba_unmultiplied(255, 255, 255, 255));
+    let bw = (label.len() as f32 * 8.0 + 20.0).max(60.0);
+    let bg_rect = egui::Rect::from_center_size(screen_pos, egui::vec2(bw, 20.0));
+    painter.rect_filled(bg_rect, 3.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180));
+    painter.rect_stroke(bg_rect, 3.0, egui::Stroke::new(1.0, border_color), egui::StrokeKind::Outside);
+    painter.text(screen_pos, egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(13.0), text_color);
 }
 
 fn death_ui_system(mut contexts: EguiContexts, outcome: Res<GameOutcome>, mut pending: ResMut<PendingState>) {
@@ -440,10 +458,10 @@ fn playing_ui(ctx: &egui::Context, telemetry: &Telemetry, keys: &ButtonInput<Key
     if let Some(cd) = countdown {
         if cd.0.remaining_secs() > 0.0 {
             let secs = cd.0.remaining_secs().ceil() as u32;
-            let label = if secs == 0 { "GO!".to_string() } else { secs.to_string() };
-            let alpha = if secs <= 1 { ((cd.0.remaining_secs() * 2.0).sin().abs() * 0.5 + 0.5) as u8 } else { 255 };
-            egui::Area::new("countdown".into()).anchor(egui::Align2::CENTER_CENTER, [0.0, -40.0]).show(ctx, |ui| {
-                ui.label(egui::RichText::new(&label).size(72.0).color(egui::Color32::from_rgba_unmultiplied(255, 200, 50, alpha)).strong());
+            let label = if secs == 0 { "FIGHT!".to_string() } else { format!("{}..", secs) };
+            let alpha = if secs <= 1 { ((cd.0.remaining_secs() * 3.0).sin().abs() * 0.4 + 0.6) as u8 } else { 220 };
+            egui::Area::new("countdown".into()).anchor(egui::Align2::CENTER_CENTER, [0.0, -120.0]).show(ctx, |ui| {
+                ui.label(egui::RichText::new(&label).size(64.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha)).strong());
             });
         }
     }

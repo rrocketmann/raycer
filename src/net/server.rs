@@ -296,7 +296,7 @@ fn spawn_remote_car(
     let root = ent.id();
     let _ = commands.entity(root).with_children(|parent| {
         parent.spawn((
-            Collider::cuboid(def.collider.x, def.collider.y, def.collider.z),
+            Collider::round_cuboid(def.collider.x, def.collider.y, def.collider.z, 0.3),
             Transform::from_translation(Vec3::new(0.0, half, 0.0)),
             CollisionLayers::new(LayerMask(0b010), LayerMask(0xFFFFFFFF)),
         ));
