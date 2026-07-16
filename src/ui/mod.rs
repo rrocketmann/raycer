@@ -35,12 +35,15 @@ fn pregame_ui_system(
     mut max_hp: ResMut<MaxHealthPoints>,
     mut pending: ResMut<PendingState>,
     mut pending_host: ResMut<PendingHost>,
+    mut discovered: ResMut<DiscoveredServers>,
+    mut pending_connect: ResMut<PendingConnect>,
+    mut show_popup: Local<bool>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-    pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut max_hp, &mut *pending, &mut *pending_host);
+    pre_game_ui(ctx, &mut car_selection, &mut blaster_selection, &mut ai_enemy_count, &mut max_hp, &mut *pending, &mut *pending_host, &mut show_popup, &mut discovered, &mut *pending_connect);
 }
 
 fn lobby_ui_system(
@@ -138,6 +141,11 @@ fn name_box(ui: &mut egui::Ui, text: &str) {
     painter.text(rect.center(), egui::Align2::CENTER_CENTER, text, egui::FontId::proportional(14.0), egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220));
 }
 
+fn semi_bg() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180) }
+fn btn_bg() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180) }
+fn txt_clr() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200) }
+fn lbl_clr() -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180) }
+
 fn pre_game_ui(
     ctx: &egui::Context,
     car_selection: &mut CarSelection,
@@ -146,12 +154,15 @@ fn pre_game_ui(
     max_hp: &mut MaxHealthPoints,
     pending: &mut PendingState,
     pending_host: &mut PendingHost,
+    show_popup: &mut bool,
+    discovered: &mut DiscoveredServers,
+    _pending_connect: &mut PendingConnect,
 ) {
     let panel_w = 260.0;
     let btn_size = 32.0;
 
     egui::CentralPanel::default()
-        .frame(egui::Frame::new())
+        .frame(egui::Frame { fill: semi_bg(), ..default() })
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(140.0);
@@ -162,14 +173,13 @@ fn pre_game_ui(
                     egui::vec2(panel_w, 290.0),
                     egui::Layout::top_down(egui::Align::Center),
                     |ui| {
-                        // Car row
-                        ui.label(egui::RichText::new("CAR").size(11.0).color(egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180)));
+                        ui.label(egui::RichText::new("CAR").size(11.0).color(lbl_clr()));
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                egui::RichText::new("<").size(16.0).color(txt_clr()),
+                            ).fill(btn_bg())).clicked() {
                                 if car_selection.random {
                                     car_selection.random = false;
                                     car_selection.index = CAR_DEFS.len() - 1;
@@ -182,8 +192,8 @@ fn pre_game_ui(
                             }
                             name_box(ui, if car_selection.random { "RANDOM" } else { CAR_DEFS[car_selection.index].name });
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                egui::RichText::new(">").size(16.0).color(txt_clr()),
+                            ).fill(btn_bg())).clicked() {
                                 if car_selection.random {
                                     car_selection.random = false;
                                     car_selection.index = 0;
@@ -198,14 +208,13 @@ fn pre_game_ui(
 
                         ui.add_space(20.0);
 
-                        // Blaster row
-                        ui.label(egui::RichText::new("BLASTER").size(11.0).color(egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180)));
+                        ui.label(egui::RichText::new("BLASTER").size(11.0).color(lbl_clr()));
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                egui::RichText::new("<").size(16.0).color(txt_clr()),
+                            ).fill(btn_bg())).clicked() {
                                 if blaster_selection.random {
                                     blaster_selection.random = false;
                                     blaster_selection.index = BLASTER_DEFS.len() - 1;
@@ -218,8 +227,8 @@ fn pre_game_ui(
                             }
                             name_box(ui, if blaster_selection.random { "RANDOM" } else { BLASTER_DEFS[blaster_selection.index].name });
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                egui::RichText::new(">").size(16.0).color(txt_clr()),
+                            ).fill(btn_bg())).clicked() {
                                 if blaster_selection.random {
                                     blaster_selection.random = false;
                                     blaster_selection.index = 0;
@@ -234,14 +243,13 @@ fn pre_game_ui(
 
                         ui.add_space(20.0);
 
-                        // Opponents row
-                        ui.label(egui::RichText::new("OPPONENTS").size(11.0).color(egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180)));
+                        ui.label(egui::RichText::new("OPPONENTS").size(11.0).color(lbl_clr()));
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                egui::RichText::new("<").size(16.0).color(txt_clr()),
+                            ).fill(btn_bg())).clicked() {
                                 if ai_enemy_count.random {
                                     ai_enemy_count.random = false;
                                     ai_enemy_count.count = 10;
@@ -254,8 +262,8 @@ fn pre_game_ui(
                             let opp_label = if ai_enemy_count.random { "RANDOM".to_string() } else { format!("{}", ai_enemy_count.count) };
                             name_box(ui, &opp_label);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                egui::RichText::new(">").size(16.0).color(txt_clr()),
+                            ).fill(btn_bg())).clicked() {
                                 if ai_enemy_count.random {
                                     ai_enemy_count.random = false;
                                     ai_enemy_count.count = 0;
@@ -269,14 +277,13 @@ fn pre_game_ui(
 
                         ui.add_space(20.0);
 
-                        // Health Points row
-                        ui.label(egui::RichText::new("HEALTH POINTS").size(11.0).color(egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180)));
+                        ui.label(egui::RichText::new("HEALTH POINTS").size(11.0).color(lbl_clr()));
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space((panel_w - btn_size * 2.0 - 100.0) / 2.0);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new("<").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                egui::RichText::new("<").size(16.0).color(txt_clr()),
+                            ).fill(btn_bg())).clicked() {
                                 if max_hp.random {
                                     max_hp.random = false;
                                     max_hp.hp = 10;
@@ -289,8 +296,8 @@ fn pre_game_ui(
                             let hp_label = if max_hp.random { "RANDOM".to_string() } else { format!("{}", max_hp.hp) };
                             name_box(ui, &hp_label);
                             if ui.add_sized([btn_size, btn_size], egui::Button::new(
-                                egui::RichText::new(">").size(16.0).color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                            ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
+                                egui::RichText::new(">").size(16.0).color(txt_clr()),
+                            ).fill(btn_bg())).clicked() {
                                 if max_hp.random {
                                     max_hp.random = false;
                                     max_hp.hp = 2;
@@ -301,34 +308,81 @@ fn pre_game_ui(
                                 }
                             }
                         });
-
                     },
                 );
 
-                ui.add_space(36.0);
+                ui.add_space(24.0);
 
-                let start_resp = ui.add_sized(
-                    [panel_w, 42.0],
-                    egui::Button::new(
-                        egui::RichText::new("START").size(18.0).strong().color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                    ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)),
-                );
-                if start_resp.clicked() {
-                    pending.0 = Some(GameState::Playing);
-                }
-                ui.add_space(12.0);
-                let mp_resp = ui.add_sized(
-                    [panel_w, 42.0],
-                    egui::Button::new(
-                        egui::RichText::new("MULTIPLAYER").size(18.0).strong().color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
-                    ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)),
-                );
-                if mp_resp.clicked() {
-                    pending_host.0 = true;
-                    pending.0 = Some(GameState::MultiplayerLobby);
-                }
+                ui.horizontal(|ui| {
+                    ui.add_space((panel_w - 260.0) / 2.0 + 20.0);
+                    let start_resp = ui.add_sized(
+                        [180.0, 42.0],
+                        egui::Button::new(
+                            egui::RichText::new("START").size(18.0).strong().color(txt_clr()),
+                        ).fill(egui::Color32::from_rgba_unmultiplied(100, 100, 100, 200)),
+                    );
+                    if start_resp.clicked() {
+                        pending.0 = Some(GameState::Playing);
+                    }
+                    let join_resp = ui.add_sized(
+                        [80.0, 42.0],
+                        egui::Button::new(
+                            egui::RichText::new("JOIN").size(12.0).color(txt_clr()),
+                        ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180)),
+                    );
+                    if join_resp.clicked() {
+                        *show_popup = true;
+                    }
+                });
             });
         });
+
+    if *show_popup {
+        egui::Window::new("join_server")
+            .title_bar(false)
+            .fixed_size([320.0, 300.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .frame(egui::Frame { fill: egui::Color32::from_rgba_unmultiplied(10, 10, 10, 220), ..default() })
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(12.0);
+                    ui.label(egui::RichText::new("JOIN SERVER").size(18.0).color(txt_clr()).strong());
+                    ui.add_space(16.0);
+
+                    if ui.add_sized([240.0, 36.0], egui::Button::new(
+                        egui::RichText::new("HOST NEW GAME").size(14.0).color(txt_clr()),
+                    ).fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 200))).clicked() {
+                        pending_host.0 = true;
+                        pending.0 = Some(GameState::MultiplayerLobby);
+                        *show_popup = false;
+                    }
+
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("— or join a LAN server —").size(11.0).color(lbl_clr()));
+                    ui.add_space(8.0);
+
+                    egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+                        for server in discovered.0.iter() {
+                            let label = format!("{} ({}p)", server.adv.name, server.adv.player_count);
+                            if ui.add_sized([240.0, 28.0], egui::Button::new(
+                                egui::RichText::new(label).size(12.0).color(txt_clr()),
+                            ).fill(btn_bg())).clicked() {
+                                _pending_connect.0 = Some(server.addr);
+                                pending.0 = Some(GameState::MultiplayerLobby);
+                                *show_popup = false;
+                            }
+                        }
+                    });
+
+                    ui.add_space(12.0);
+                    if ui.add_sized([120.0, 28.0], egui::Button::new(
+                        egui::RichText::new("CANCEL").size(12.0).color(txt_clr()),
+                    ).fill(btn_bg())).clicked() {
+                        *show_popup = false;
+                    }
+                });
+            });
+    }
 }
 
 fn multiplayer_lobby_ui(
@@ -336,8 +390,8 @@ fn multiplayer_lobby_ui(
     mode: &NetMode,
     _name: &PlayerName,
     pending: &mut PendingState,
-    discovered: &mut DiscoveredServers,
-    lobby: &LobbyData,
+    _discovered: &mut DiscoveredServers,
+    _lobby: &LobbyData,
     client: Option<&GameClient>,
     _car_selection: &mut CarSelection,
     _blaster_selection: &mut BlasterSelection,
@@ -345,87 +399,43 @@ fn multiplayer_lobby_ui(
     max_hp: &mut MaxHealthPoints,
     _pending_connect: &mut PendingConnect,
 ) {
-    let panel_w = 400.0;
-    let btn_color = egui::Color32::from_rgba_unmultiplied(60, 60, 60, 160);
-    let text_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200);
-    let small_text = egui::Color32::from_rgba_unmultiplied(130, 130, 130, 180);
+    let panel_w = 260.0;
 
     egui::CentralPanel::default()
-        .frame(egui::Frame {
-            fill: egui::Color32::from_rgba_unmultiplied(20, 20, 20, 255),
-            ..default()
-        })
+        .frame(egui::Frame { fill: semi_bg(), ..default() })
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                ui.add_space(60.0);
+                ui.add_space(120.0);
 
                 match mode {
                     NetMode::Host { .. } => {
-                        ui.label(egui::RichText::new("HOSTING GAME").size(24.0).color(text_color).strong());
-                        ui.add_space(16.0);
+                        ui.label(egui::RichText::new("HOSTING").size(24.0).color(txt_clr()).strong());
+                        ui.add_space(20.0);
 
-                        // Settings
-                        ui.label(egui::RichText::new("SETTINGS").size(11.0).color(small_text));
-                        ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            ui.add_space(40.0);
-                            ui.label(egui::RichText::new("HP:").size(14.0).color(text_color));
-                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("-").size(12.0).color(text_color)).fill(btn_color)).clicked() {
+                            ui.add_space(30.0);
+                            ui.label(egui::RichText::new("HP").size(12.0).color(lbl_clr()));
+                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("-").size(12.0).color(txt_clr())).fill(btn_bg())).clicked() {
                                 max_hp.hp = max_hp.hp.saturating_sub(1).max(1);
                             }
-                            ui.label(egui::RichText::new(format!("{}", max_hp.hp)).size(14.0).color(text_color));
-                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("+").size(12.0).color(text_color)).fill(btn_color)).clicked() {
-                                max_hp.hp = max_hp.hp.min(20).saturating_add(1);
+                            ui.label(egui::RichText::new(format!("{}", max_hp.hp)).size(14.0).color(txt_clr()));
+                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("+").size(12.0).color(txt_clr())).fill(btn_bg())).clicked() {
+                                max_hp.hp = max_hp.hp.saturating_add(1).min(20);
                             }
-                            ui.add_space(20.0);
-                            ui.label(egui::RichText::new("AI:").size(14.0).color(text_color));
-                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("-").size(12.0).color(text_color)).fill(btn_color)).clicked() {
+                            ui.add_space(16.0);
+                            ui.label(egui::RichText::new("AI").size(12.0).color(lbl_clr()));
+                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("-").size(12.0).color(txt_clr())).fill(btn_bg())).clicked() {
                                 ai_enemy_count.count = ai_enemy_count.count.saturating_sub(1);
                             }
-                            ui.label(egui::RichText::new(format!("{}", ai_enemy_count.count)).size(14.0).color(text_color));
-                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("+").size(12.0).color(text_color)).fill(btn_color)).clicked() {
+                            ui.label(egui::RichText::new(format!("{}", ai_enemy_count.count)).size(14.0).color(txt_clr()));
+                            if ui.add_sized([24.0, 24.0], egui::Button::new(egui::RichText::new("+").size(12.0).color(txt_clr())).fill(btn_bg())).clicked() {
                                 ai_enemy_count.count = ai_enemy_count.count.saturating_add(1).min(20);
                             }
                         });
 
-                        ui.add_space(12.0);
-                        // Teams toggle
-                        ui.horizontal(|ui| {
-                            ui.add_space(40.0);
-                            let teams_on = lobby.settings.teams_enabled;
-                            let teams_str = if teams_on { "TEAMS: ON" } else { "TEAMS: OFF" };
-                            if ui.add_sized([120.0, 24.0], egui::Button::new(egui::RichText::new(teams_str).size(12.0).color(text_color)).fill(btn_color)).clicked() {
-                                // Toggle via pending. This would need server to update. For now just visual.
-                            }
-                            ui.add_space(10.0);
-                            let respawn_on = lobby.settings.respawn_enabled;
-                            let respawn_str = if respawn_on { "RESPAWN: ON" } else { "RESPAWN: OFF" };
-                            if ui.add_sized([140.0, 24.0], egui::Button::new(egui::RichText::new(respawn_str).size(12.0).color(text_color)).fill(btn_color)).clicked() {
-                                // Toggle
-                            }
-                        });
-
-                        ui.add_space(16.0);
-                        ui.label(egui::RichText::new("PLAYERS").size(11.0).color(small_text));
-                        ui.add_space(4.0);
-                        for p in &lobby.players {
-                            ui.horizontal(|ui| {
-                                ui.add_space(40.0);
-                                let team_label = if lobby.settings.teams_enabled { format!("[T{}] ", p.team + 1) } else { String::new() };
-                                ui.label(egui::RichText::new(format!("{}{}", team_label, p.username)).size(14.0).color(text_color));
-                                if lobby.settings.teams_enabled && p.client_id == 0 {
-                                    if ui.add_sized([20.0, 20.0], egui::Button::new(egui::RichText::new("<").size(10.0).color(text_color)).fill(btn_color)).clicked() {
-                                        // would send team change
-                                    }
-                                    if ui.add_sized([20.0, 20.0], egui::Button::new(egui::RichText::new(">").size(10.0).color(text_color)).fill(btn_color)).clicked() {
-                                        // would send team change
-                                    }
-                                }
-                            });
-                        }
-                        ui.add_space(20.0);
-                        if ui.add_sized([panel_w * 0.5, 36.0], egui::Button::new(
-                            egui::RichText::new("START GAME").size(16.0).color(text_color),
+                        ui.add_space(24.0);
+                        if ui.add_sized([panel_w, 36.0], egui::Button::new(
+                            egui::RichText::new("START GAME").size(16.0).color(txt_clr()),
                         ).fill(egui::Color32::from_rgba_unmultiplied(100, 100, 100, 200))).clicked() {
                             pending.0 = Some(GameState::Playing);
                         }
@@ -434,45 +444,20 @@ fn multiplayer_lobby_ui(
                         if let Some(client) = client {
                             if client.connected {
                                 ui.label(egui::RichText::new("CONNECTED").size(18.0).color(egui::Color32::GREEN));
-                                ui.add_space(10.0);
-                                ui.label(egui::RichText::new("LOBBY").size(11.0).color(small_text));
-                                ui.add_space(4.0);
-                                for p in &lobby.players {
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(60.0);
-                                        let team_label = if lobby.settings.teams_enabled { format!("[T{}] ", p.team + 1) } else { String::new() };
-                                        ui.label(egui::RichText::new(format!("{}{}", team_label, p.username)).size(14.0).color(text_color));
-                                    });
-                                }
-                                ui.add_space(20.0);
-                                ui.label(egui::RichText::new("Waiting for host to start...").size(14.0).color(small_text));
+                                ui.add_space(16.0);
+                                ui.label(egui::RichText::new("Waiting for host to start...").size(14.0).color(lbl_clr()));
                             } else {
-                                ui.label(egui::RichText::new("Connecting...").size(18.0).color(text_color));
-                            }
-                        } else {
-                            ui.label(egui::RichText::new("SERVER BROWSER").size(24.0).color(text_color).strong());
-                            ui.add_space(16.0);
-                            for server in discovered.0.clone() {
-                                ui.horizontal(|ui| {
-                                    ui.add_space(40.0);
-                                    let label = format!("{} ({} / {} players)", server.adv.name, server.adv.player_count, server.adv.max_players);
-                                    if ui.add_sized([panel_w * 0.65, 28.0], egui::Button::new(
-                                        egui::RichText::new(label).size(12.0).color(text_color),
-                                    ).fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180))).clicked() {
-                                        _pending_connect.0 = Some(server.addr);
-                                        pending.0 = Some(GameState::MultiplayerLobby);
-                                    }
-                                });
+                                ui.label(egui::RichText::new("Connecting...").size(18.0).color(txt_clr()));
                             }
                         }
                     }
                     NetMode::None => {}
                 }
 
-                ui.add_space(16.0);
-                if ui.add_sized([panel_w * 0.3, 28.0], egui::Button::new(
-                    egui::RichText::new("BACK TO MENU").size(14.0).color(text_color),
-                ).fill(egui::Color32::from_rgba_unmultiplied(40, 40, 40, 160))).clicked() {
+                ui.add_space(20.0);
+                if ui.add_sized([panel_w * 0.5, 28.0], egui::Button::new(
+                    egui::RichText::new("BACK").size(14.0).color(txt_clr()),
+                ).fill(btn_bg())).clicked() {
                     pending.0 = Some(GameState::PreGame);
                 }
             });
@@ -492,10 +477,7 @@ fn death_ui(
     let text_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200);
 
     egui::CentralPanel::default()
-        .frame(egui::Frame {
-            fill: egui::Color32::from_rgba_unmultiplied(20, 20, 20, 255),
-            ..default()
-        })
+        .frame(egui::Frame { fill: semi_bg(), ..default() })
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(220.0);
