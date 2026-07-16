@@ -70,12 +70,52 @@ fn playing_ui_system(
     keys: Res<ButtonInput<KeyCode>>,
     charge: Res<WeaponCharge>,
     blaster_selection: Res<BlasterSelection>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<crate::car::CarCamera>>,
+    car_query: Query<(&Transform, &crate::car::Health, Option<&crate::OwnerClient>), (With<crate::car::PlayerCar>, Without<crate::car::AiCar>)>,
+    ai_query: Query<(&Transform, &crate::car::Health), With<crate::car::AiCar>>,
+    remote_query: Query<(&Transform, &crate::OwnerClient), With<crate::RemotePlayer>>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
     playing_ui(ctx, &telemetry, &keys, &charge, &blaster_selection);
+
+    let Ok((camera, cam_global)) = camera_query.single() else { return };
+
+    egui::Area::new(egui::Id::new("nametags"))
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            for (tf, health, _owner) in car_query.iter() {
+                draw_nametag(ui, camera, cam_global, tf, health.0);
+            }
+            for (tf, health) in ai_query.iter() {
+                draw_nametag(ui, camera, cam_global, tf, health.0);
+            }
+            for (tf, _owner) in remote_query.iter() {
+                draw_nametag(ui, camera, cam_global, tf, 0);
+            }
+        });
+}
+
+fn draw_nametag(
+    ui: &mut egui::Ui,
+    camera: &Camera,
+    cam_global: &GlobalTransform,
+    tf: &Transform,
+    health: u8,
+) {
+    let Ok(pos) = camera.world_to_viewport(cam_global, tf.translation + Vec3::new(0.0, 3.0, 0.0)) else { return };
+    let screen_pos = egui::pos2(pos.x, pos.y - 20.0);
+    let text = format!("{} HP", health);
+    let painter = ui.painter();
+    painter.text(
+        screen_pos,
+        egui::Align2::CENTER_BOTTOM,
+        text,
+        egui::FontId::proportional(12.0),
+        egui::Color32::WHITE,
+    );
 }
 
 fn death_ui_system(
