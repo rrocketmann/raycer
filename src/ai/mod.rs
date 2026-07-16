@@ -6,6 +6,8 @@ use crate::car::{AiCar, CarVisual, PlayerCar, CAR_DEFS, mount_y, Health, spawn_h
 use crate::GameState;
 use crate::AiEnemyCount;
 use crate::MaxHealthPoints;
+use crate::NetMode;
+use crate::{CarModelIndex, BlasterModelIndex};
 use rand::Rng;
 
 #[derive(Component)]
@@ -28,6 +30,10 @@ struct AiConfig {
 #[derive(Component)]
 struct AiWeaponCharge(pub f32);
 
+fn not_client(mode: Res<NetMode>) -> bool {
+    !matches!(*mode, NetMode::Client)
+}
+
 pub struct AiPlugin;
 
 impl Plugin for AiPlugin {
@@ -39,10 +45,10 @@ impl Plugin for AiPlugin {
                 ai_compute_pivot,
                 ai_aim_blaster,
             ).chain())
-            .add_systems(Update, ai_drive.run_if(in_state(GameState::Playing)))
-            .add_systems(Update, ai_shoot.run_if(in_state(GameState::Playing)))
-            .add_systems(Update, despawn_dead_cars.run_if(in_state(GameState::Playing)))
-            .add_systems(Update, damage_smoke.run_if(in_state(GameState::Playing)));
+            .add_systems(Update, ai_drive.run_if(in_state(GameState::Playing).and(not_client)))
+            .add_systems(Update, ai_shoot.run_if(in_state(GameState::Playing).and(not_client)))
+            .add_systems(Update, despawn_dead_cars.run_if(in_state(GameState::Playing).and(not_client)))
+            .add_systems(Update, damage_smoke.run_if(in_state(GameState::Playing).and(not_client)));
     }
 }
 
@@ -98,6 +104,8 @@ fn spawn_ai_cars(
             GravityScale(1.0),
             AiWeaponCharge(0.0),
             AiConfig { car_index, blaster_index },
+            CarModelIndex(car_index),
+            BlasterModelIndex(blaster_index),
         ));
 
         commands.entity(ai_root).with_children(|parent| {

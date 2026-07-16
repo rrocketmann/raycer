@@ -71,6 +71,12 @@ pub struct RemotePlayer;
 #[derive(Component)]
 pub struct RemoteBullet;
 
+#[derive(Component)]
+pub struct CarModelIndex(pub usize);
+
+#[derive(Component)]
+pub struct BlasterModelIndex(pub usize);
+
 fn enter_pregame(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -168,6 +174,19 @@ fn resolve_random_options(
     if max_hp.random {
         max_hp.hp = rand::rng().random_range(2..=10);
         max_hp.random = false;
+    }
+}
+
+fn start_server_game(mut server: Option<ResMut<net::server::GameServer>>) {
+    if let Some(ref mut server) = server {
+        server.game_started = true;
+        server.broadcast(&net::protocol::ServerMessage::GameStarting { tick: 0 });
+    }
+}
+
+fn stop_server_game(mut server: Option<ResMut<net::server::GameServer>>) {
+    if let Some(mut server) = server {
+        server.game_started = false;
     }
 }
 
@@ -300,10 +319,21 @@ fn apply_client_snapshot(
     }
 }
 
-fn _attach_camera_to_own_car(
-    client: Option<Res<net::client::GameClient>>,
+fn client_capture_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mut client: Option<ResMut<net::client::GameClient>>,
 ) {
-    let _ = client;
+    let Some(ref mut client) = client else { return };
+    if !client.connected { return; }
+    let throttle = if keys.pressed(KeyCode::KeyW) { 1.0 } else if keys.pressed(KeyCode::KeyS) { -0.5 } else { 0.0 };
+    let steer = match (keys.pressed(KeyCode::KeyA), keys.pressed(KeyCode::KeyD)) {
+        (true, false) => 1.0,
+        (false, true) => -1.0,
+        _ => 0.0,
+    };
+    let shoot = mouse_buttons.pressed(MouseButton::Left);
+    client.send_input(throttle, steer, keys.pressed(KeyCode::Space), keys.pressed(KeyCode::ShiftLeft), shoot);
 }
 
 fn main() {
@@ -339,7 +369,8 @@ fn main() {
         .init_resource::<net::client::DiscoveredServers>()
         .init_resource::<net::client::ReceivedSnapshot>()
         .init_resource::<net::client::LobbyData>()
-        .add_systems(OnEnter(GameState::Playing), resolve_random_options)
+        .add_systems(OnEnter(GameState::Playing), (resolve_random_options, start_server_game))
+        .add_systems(OnExit(GameState::Playing), stop_server_game)
         .add_systems(OnEnter(GameState::MultiplayerLobby), start_broadcast_receiver)
         .add_systems(OnExit(GameState::MultiplayerLobby), cleanup_multiplayer)
         .add_systems(OnExit(GameState::Playing), cleanup_multiplayer)
@@ -347,9 +378,12 @@ fn main() {
         .add_systems(Update, check_game_state.run_if(in_state(GameState::Playing)))
         .add_systems(Update, apply_pending_state)
         .add_systems(Update, (handle_pending_host, handle_pending_connect))
-        .add_systems(Update, apply_client_snapshot)
+        .add_systems(Update, (apply_client_snapshot, client_capture_input))
         .add_systems(Update, (
             net::server::server_broadcast_system,
+            net::server::server_snapshot_system,
+            net::server::apply_client_inputs,
+            net::server::handle_server_connections,
             net::client::discovery_listen_system,
             net::client::client_receive_system,
         ))

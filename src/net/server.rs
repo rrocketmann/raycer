@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use bevy::prelude::*;
+use crate::car::{PlayerCar, AiCar, Health, CAR_DEFS};
 use crate::net::protocol::*;
 use crate::net::socket::NetworkThread;
+use crate::{OwnerClient, CarModelIndex, BlasterModelIndex};
 
 #[derive(Resource)]
 pub struct GameServer {
@@ -169,4 +171,66 @@ pub fn server_broadcast_system(mut server: Option<ResMut<GameServer>>) {
 
 pub fn all_players_ready(server: &GameServer) -> bool {
     server.clients.values().all(|c| c.info.ready)
+}
+
+pub fn server_snapshot_system(
+    server: Option<Res<GameServer>>,
+    car_query: Query<(&Transform, &Health, Option<&OwnerClient>, Option<&CarModelIndex>, Option<&BlasterModelIndex>)>,
+) {
+    let Some(server) = server else { return };
+    if !server.game_started { return; }
+    let username_map: HashMap<u64, &str> = server.player_info.iter().map(|p| (p.client_id, p.username.as_str())).collect();
+    let cars: Vec<CarSnapshot> = car_query.iter().filter_map(|(tf, health, owner, car_idx, blaster_idx)| {
+        let client_id = owner.map(|o| o.0).unwrap_or(u64::MAX);
+        let ci = car_idx.map(|c| c.0).unwrap_or(0);
+        let bi = blaster_idx.map(|b| b.0).unwrap_or(0);
+        let pos = tf.translation;
+        let rot = tf.rotation;
+        Some(CarSnapshot {
+            client_id,
+            position: [pos.x, pos.y, pos.z],
+            rotation: [rot.x, rot.y, rot.z, rot.w],
+            velocity: [0.0, 0.0, 0.0],
+            health: health.0,
+            car_index: ci,
+            blaster_index: bi,
+            team: 0,
+            username: username_map.get(&client_id).unwrap_or(&"").to_string(),
+        })
+    }).collect();
+    server.send_snapshot(cars, Vec::new());
+}
+
+pub fn spawn_client_cars(
+    server: Res<GameServer>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    let _ = server;
+    let _ = asset_server;
+}
+
+pub fn apply_client_inputs(
+    server: Res<GameServer>,
+    mut query: Query<(&OwnerClient, &mut crate::car::CarInput)>,
+) {
+    for (owner, mut input) in query.iter_mut() {
+        if let Some(client) = server.clients.get(&owner.0) {
+            let ci = &client.input;
+            input.throttle = ci.throttle;
+            input.steer = ci.steer;
+            input.braking = ci.braking;
+            input.boosting = ci.boosting;
+        }
+    }
+}
+
+// We'll also need to handle client car spawn when they connect while game is running.
+// For now, they join at lobby only.
+pub fn handle_server_connections(
+    mut server: Option<ResMut<GameServer>>,
+    mut _commands: Commands,
+) {
+    let Some(ref mut server) = server else { return };
+    server.handle_messages();
 }

@@ -4,6 +4,7 @@ use bevy_egui::{EguiContext, EguiContextSettings, EguiFullOutput, EguiInput, Pri
 use bevy_light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap, ShadowFilteringMethod};
 use rand::Rng;
 use crate::car::{Car, CarCamera, CarCollider, CarVisual, PlayerCar, CAR_DEFS, VehicleData, CarSelection, Health, DamageTracker, spawn_health_indicators};
+use crate::{OwnerClient, CarModelIndex, BlasterModelIndex, NetMode};
 use crate::blaster::{BlasterSelection, BLASTER_DEFS};
 use crate::GameState;
 use crate::MaxHealthPoints;
@@ -52,7 +53,9 @@ fn spawn_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     max_hp: Res<MaxHealthPoints>,
+    mode: Res<NetMode>,
 ) {
+    if matches!(*mode, NetMode::Client) { return; }
     let car_index = if car_selection.random {
         rand::rng().random_range(0..CAR_DEFS.len())
     } else {
@@ -71,6 +74,9 @@ fn spawn_world(
     let car_root = commands.spawn((
         Car { speed: 0.0, yaw: 0.0 },
         PlayerCar,
+        OwnerClient(0),
+        CarModelIndex(car_index),
+        BlasterModelIndex(blaster_index),
         WorldMarker,
         RigidBody::Dynamic,
         Position(Vec3::new(0.0, 3.0, 0.0)),

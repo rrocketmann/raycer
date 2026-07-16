@@ -5,6 +5,7 @@ use bevy::ecs::message::MessageReader;
 use rand::Rng;
 use crate::GameState;
 use crate::MaxHealthPoints;
+use crate::NetMode;
 
 #[derive(Component, Default)]
 pub struct DamageTracker {
@@ -62,6 +63,10 @@ impl CarSelection {
     }
 }
 
+pub fn not_client(mode: Res<NetMode>) -> bool {
+    !matches!(*mode, NetMode::Client)
+}
+
 pub struct CarPlugin;
 
 impl Plugin for CarPlugin {
@@ -76,11 +81,11 @@ impl Plugin for CarPlugin {
             .init_resource::<CameraState>()
             .add_systems(
                 FixedPostUpdate,
-                (ground_detection_system, apply_vehicle_forces, smooth_angular_velocity).chain().in_set(PhysicsSystems::Prepare).run_if(in_state(GameState::Playing)),
+                (ground_detection_system, apply_vehicle_forces, smooth_angular_velocity).chain().in_set(PhysicsSystems::Prepare).run_if(in_state(GameState::Playing).and(not_client)),
             )
-            .add_systems(Update, capture_input.run_if(in_state(GameState::Playing)))
+            .add_systems(Update, capture_input.run_if(in_state(GameState::Playing).and(not_client)))
             .add_systems(Update, camera_input.run_if(in_state(GameState::Playing)))
-            .add_systems(Update, (sync_car_state, clamp_speed).run_if(in_state(GameState::Playing)))
+            .add_systems(Update, (sync_car_state, clamp_speed).run_if(in_state(GameState::Playing).and(not_client)))
             .add_systems(Update, camera_follow.run_if(in_state(GameState::Playing).or(in_state(GameState::Eliminated))))
             .add_systems(
                 Update,
@@ -89,7 +94,7 @@ impl Plugin for CarPlugin {
                     animate_wheels,
                     record_telemetry,
                     switch_car_model,
-                ).run_if(in_state(GameState::Playing)),
+                ).run_if(in_state(GameState::Playing).and(not_client)),
             )
             .add_systems(Update, switch_car_model_pregame.run_if(in_state(GameState::PreGame)))
             .add_systems(Update, sync_pregame_health.run_if(in_state(GameState::PreGame)))
@@ -344,7 +349,7 @@ pub struct WheelState {
     pub target_angle: f32,
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource, Component, Default)]
 pub struct CarInput {
     pub throttle: f32,
     pub steer: f32,

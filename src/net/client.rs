@@ -65,7 +65,8 @@ impl GameClient {
         });
     }
 
-    pub fn send_input(&self, throttle: f32, steer: f32, braking: bool, boosting: bool, shoot: bool) {
+    pub fn send_input(&mut self, throttle: f32, steer: f32, braking: bool, boosting: bool, shoot: bool) {
+        self.sequence += 1;
         let seq = self.sequence;
         self.send(&ClientMessage::Input {
             sequence: seq,
@@ -108,6 +109,7 @@ pub fn client_receive_system(
     mut client: Option<ResMut<GameClient>>,
     mut lobby: ResMut<LobbyData>,
     mut snapshot: ResMut<ReceivedSnapshot>,
+    mut next_state: ResMut<NextState<crate::GameState>>,
 ) {
     let Some(ref mut client) = client else { return };
     while let Some(msg) = client.poll() {
@@ -126,7 +128,9 @@ pub fn client_receive_system(
                 snapshot.cars = cars;
                 snapshot.bullets = bullets;
             }
-            ServerMessage::GameStarting { .. } => {}
+            ServerMessage::GameStarting { .. } => {
+                next_state.set(crate::GameState::Playing);
+            }
             ServerMessage::GameOver { .. } => {}
             ServerMessage::PlayerJoined { .. } => {}
             ServerMessage::PlayerLeft { .. } => {}

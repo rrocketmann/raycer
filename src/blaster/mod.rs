@@ -4,6 +4,7 @@ use avian3d::prelude::{Collider, SpatialQuery, ShapeCastConfig, SpatialQueryFilt
 use rand::Rng;
 use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health};
 use crate::GameState;
+use crate::NetMode;
 
 #[derive(Clone)]
 pub enum BlasterType {
@@ -88,6 +89,10 @@ pub const BULLET_LIFETIME_SECS: f32 = 5.0;
 #[derive(Resource, Default)]
 pub struct WeaponCharge(pub f32);
 
+fn not_client(mode: Res<NetMode>) -> bool {
+    !matches!(*mode, NetMode::Client)
+}
+
 pub struct BlasterPlugin;
 
 impl Plugin for BlasterPlugin {
@@ -100,8 +105,8 @@ impl Plugin for BlasterPlugin {
                 switch_blaster,
                 compute_pivot,
                 aim_blaster,
-            ).chain().run_if(in_state(GameState::Playing)))
-            .add_systems(Update, (player_shoot, move_bullets).chain().run_if(in_state(GameState::Playing)));
+            ).chain().run_if(in_state(GameState::Playing).and(not_client)))
+            .add_systems(Update, (player_shoot, move_bullets).chain().run_if(in_state(GameState::Playing).and(not_client)));
     }
 }
 
