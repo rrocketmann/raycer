@@ -378,9 +378,10 @@ fn main() {
         .init_resource::<net::client::DiscoveredServers>()
         .init_resource::<net::client::ReceivedSnapshot>()
         .init_resource::<net::client::LobbyData>()
-        .add_systems(OnEnter(GameState::Playing), (resolve_random_options, start_server_game))
+        .add_systems(OnEnter(GameState::Playing), (resolve_random_options, start_server_game, net::server::spawn_client_cars_on_start))
         .add_systems(OnExit(GameState::Playing), stop_server_game)
         .add_systems(OnEnter(GameState::MultiplayerLobby), start_broadcast_receiver)
+        .add_systems(OnExit(GameState::PreGame), cleanup_multiplayer)
         .add_systems(OnExit(GameState::MultiplayerLobby), cleanup_multiplayer)
         .add_systems(OnExit(GameState::Playing), cleanup_multiplayer)
         .add_systems(Update, enter_pregame.run_if(in_state(GameState::Loading)))
@@ -393,6 +394,9 @@ fn main() {
             net::server::server_snapshot_system,
             net::server::respawn_system,
             net::server::apply_client_inputs,
+            net::server::drive_remote_cars,
+            net::server::remove_stale_clients,
+            net::server::spawn_midgame_client_cars,
             net::server::handle_server_connections,
             net::client::discovery_listen_system,
             net::client::client_receive_system,
