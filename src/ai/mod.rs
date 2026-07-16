@@ -7,6 +7,7 @@ use crate::GameState;
 use crate::AiEnemyCount;
 use crate::MaxHealthPoints;
 use crate::NetMode;
+use crate::RoundCountdown;
 use crate::{CarModelIndex, BlasterModelIndex, Team};
 use rand::Rng;
 
@@ -235,7 +236,9 @@ fn ai_shoot(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    countdown: Option<Res<RoundCountdown>>,
 ) {
+    if let Some(cd) = countdown { if cd.0.remaining_secs() > 0.0 { return; } }
     let Ok((player_entity, player_global)) = player_query.single() else { return };
     let target_pos = player_global.translation();
     let color = Srgba::hex("ff0000").unwrap();
@@ -258,7 +261,7 @@ fn ai_shoot(
             .map(|v| v.0 * travel_time * 0.9)
             .unwrap_or(Vec3::ZERO);
         let mut rng = rand::rng();
-        let aim_point = target_pos + lead + Vec3::new(rng.random_range(-0.4..0.4), rng.random_range(-0.3..0.3), rng.random_range(-0.4..0.4));
+        let aim_point = target_pos + lead + Vec3::new(rng.random_range(-0.4..0.4), rng.random_range(0.8..1.5), rng.random_range(-0.4..0.4));
 
         let Ok(children) = children_query.get(ai_entity) else { continue };
         let mut blaster_pos = ai_global.translation();
@@ -324,15 +327,17 @@ fn ai_drive(
     mut ai_query: Query<(&AiConfig, &mut LinearVelocity, &Position, &Rotation), With<AiCar>>,
     player_query: Query<&Position, (With<PlayerCar>, Without<AiCar>)>,
     time: Res<Time>,
+    countdown: Option<Res<RoundCountdown>>,
 ) {
     let Ok(player_pos) = player_query.single() else { return };
     let max_speed = 60.0;
+    let fleeing = countdown.is_some() && countdown.unwrap().0.remaining_secs() > 0.0;
 
     for (_config, mut velocity, pos, rot) in ai_query.iter_mut() {
         let to_player = player_pos.0 - pos.0;
         let dist = to_player.length();
 
-        if dist < 15.0 {
+        if fleeing || dist < 15.0 {
             let flee_dir = -to_player.normalize_or(Vec3::Z);
             let flat_flee = Vec3::new(flee_dir.x, 0.0, flee_dir.z).normalize_or(Vec3::Z);
             let target = flat_flee * max_speed;

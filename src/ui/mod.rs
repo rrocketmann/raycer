@@ -3,15 +3,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::car::{CarSelection, Telemetry, CAR_DEFS};
 use crate::blaster::{BlasterSelection, WeaponCharge, BLASTER_DEFS};
-use crate::GameState;
-use crate::AiEnemyCount;
-use crate::MaxHealthPoints;
-use crate::GameOutcome;
-use crate::PendingState;
-use crate::NetMode;
-use crate::PlayerName;
-use crate::PendingConnect;
-use crate::PendingHost;
+use crate::{GameState, AiEnemyCount, MaxHealthPoints, GameOutcome, PendingState, NetMode, PlayerName, PendingConnect, PendingHost, RoundCountdown};
 use crate::net::client::{DiscoveredServers, LobbyData, GameClient};
 
 pub struct UiPlugin;
@@ -75,6 +67,7 @@ fn playing_ui_system(
     keys: Res<ButtonInput<KeyCode>>,
     charge: Res<WeaponCharge>,
     blaster_selection: Res<BlasterSelection>,
+    countdown: Option<Res<crate::RoundCountdown>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<crate::car::CarCamera>>,
     car_query: Query<(&Transform, &crate::car::Health, Option<&crate::OwnerClient>), (With<crate::car::PlayerCar>, Without<crate::car::AiCar>)>,
     ai_query: Query<(&Transform, &crate::car::Health), With<crate::car::AiCar>>,
@@ -84,7 +77,7 @@ fn playing_ui_system(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-    playing_ui(ctx, &telemetry, &keys, &charge, &blaster_selection);
+    playing_ui(ctx, &telemetry, &keys, &charge, &blaster_selection, countdown.as_deref());
 
     let Ok((camera, cam_global)) = camera_query.single() else { return };
 
@@ -435,7 +428,7 @@ fn death_ui(ctx: &egui::Context, outcome: &GameOutcome, pending: &mut PendingSta
 }
 
 // ── PLAYING HUD ──
-fn playing_ui(ctx: &egui::Context, telemetry: &Telemetry, keys: &ButtonInput<KeyCode>, charge: &WeaponCharge, bs: &BlasterSelection) {
+fn playing_ui(ctx: &egui::Context, telemetry: &Telemetry, keys: &ButtonInput<KeyCode>, charge: &WeaponCharge, bs: &BlasterSelection, countdown: Option<&RoundCountdown>) {
     let w_ = |k: KeyCode| keys.pressed(k);
     let w = w_(KeyCode::KeyW) || w_(KeyCode::ArrowUp);
     let a = w_(KeyCode::KeyA) || w_(KeyCode::ArrowLeft);
@@ -443,6 +436,17 @@ fn playing_ui(ctx: &egui::Context, telemetry: &Telemetry, keys: &ButtonInput<Key
     let d = w_(KeyCode::KeyD) || w_(KeyCode::ArrowRight);
     let sp = w_(KeyCode::Space);
     let shift = w_(KeyCode::ShiftLeft) || w_(KeyCode::ShiftRight);
+
+    if let Some(cd) = countdown {
+        if cd.0.remaining_secs() > 0.0 {
+            let secs = cd.0.remaining_secs().ceil() as u32;
+            let label = if secs == 0 { "GO!".to_string() } else { secs.to_string() };
+            let alpha = if secs <= 1 { ((cd.0.remaining_secs() * 2.0).sin().abs() * 0.5 + 0.5) as u8 } else { 255 };
+            egui::Area::new("countdown".into()).anchor(egui::Align2::CENTER_CENTER, [0.0, -40.0]).show(ctx, |ui| {
+                ui.label(egui::RichText::new(&label).size(72.0).color(egui::Color32::from_rgba_unmultiplied(255, 200, 50, alpha)).strong());
+            });
+        }
+    }
 
     let def = &BLASTER_DEFS[bs.display_index()];
     let cr = (charge.0 / def.capacity).min(1.0);

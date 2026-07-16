@@ -186,6 +186,14 @@ fn resolve_random_options(
     }
 }
 
+fn start_countdown(mut commands: Commands) {
+    commands.insert_resource(RoundCountdown::default());
+}
+
+fn remove_countdown(mut commands: Commands) {
+    commands.remove_resource::<RoundCountdown>();
+}
+
 fn start_server_game(mut server: Option<ResMut<net::server::GameServer>>) {
     if let Some(ref mut server) = server {
         server.game_started = true;
@@ -202,6 +210,45 @@ fn stop_server_game(server: Option<ResMut<net::server::GameServer>>) {
 fn cleanup_multiplayer(mut commands: Commands) {
     commands.remove_resource::<net::server::GameServer>();
     commands.remove_resource::<net::client::GameClient>();
+}
+
+#[derive(Resource)]
+pub struct RoundCountdown(pub Timer);
+
+impl Default for RoundCountdown {
+    fn default() -> Self { Self(Timer::from_seconds(3.0, TimerMode::Once)) }
+}
+
+fn round_countdown_system(
+    time: Res<Time>,
+    countdown: Option<ResMut<RoundCountdown>>,
+) {
+    if let Some(mut cd) = countdown {
+        cd.0.tick(time.delta());
+    }
+}
+
+fn flee_during_countdown(
+    countdown: Option<Res<RoundCountdown>>,
+    player_pos: Query<&Position, With<PlayerCar>>,
+    ai_query: Query<(Entity, &Position), (With<AiCar>, Without<PlayerCar>)>,
+    mut player_vel: Query<&mut LinearVelocity, With<PlayerCar>>,
+) {
+    let cd = match countdown {
+        Some(c) if c.0.remaining_secs() > 0.0 => c,
+        _ => return,
+    };
+    let _ = cd;
+    let Ok(pp) = player_pos.single() else { return };
+    let Ok(mut pv) = player_vel.single_mut() else { return };
+    for (_ai_entity, ai_pos) in ai_query.iter() {
+        let diff = pp.0 - ai_pos.0;
+        let dist = diff.length();
+        if dist < 50.0 && dist > 0.1 {
+            let dir = diff / dist;
+            pv.0 += dir * 0.5;
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -378,7 +425,9 @@ fn main() {
         .init_resource::<net::client::DiscoveredServers>()
         .init_resource::<net::client::ReceivedSnapshot>()
         .init_resource::<net::client::LobbyData>()
-        .add_systems(OnEnter(GameState::Playing), (resolve_random_options, start_server_game, net::server::spawn_client_cars_on_start))
+        .add_systems(OnEnter(GameState::Playing), (resolve_random_options, start_server_game, net::server::spawn_client_cars_on_start, start_countdown))
+        .add_systems(OnExit(GameState::Playing), remove_countdown)
+        .add_systems(Update, (round_countdown_system, flee_during_countdown))
         .add_systems(OnExit(GameState::Playing), stop_server_game)
         .add_systems(OnEnter(GameState::MultiplayerLobby), start_broadcast_receiver)
         .add_systems(OnExit(GameState::PreGame), cleanup_multiplayer)

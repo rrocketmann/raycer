@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use avian3d::prelude::{Collider, SpatialQuery, ShapeCastConfig, SpatialQueryFilter};
 use rand::Rng;
 use crate::car::{PlayerCar, AiCar, CarCamera, CarSelection, CAR_DEFS, mount_y, Health};
-use crate::{GameState, Team};
+use crate::{GameState, Team, RoundCountdown};
 use crate::NetMode;
 
 #[derive(Clone)]
@@ -261,7 +261,9 @@ fn player_shoot(
     mut materials: ResMut<Assets<StandardMaterial>>,
     blaster_selection: Res<BlasterSelection>,
     mut charge: ResMut<WeaponCharge>,
+    countdown: Option<Res<RoundCountdown>>,
 ) {
+    if let Some(cd) = countdown { if cd.0.remaining_secs() > 0.0 { return; } }
     let def = &BLASTER_DEFS[blaster_selection.display_index()];
 
     charge.0 = (charge.0 + def.reload_speed * time.delta_secs()).min(def.capacity);
