@@ -82,6 +82,9 @@ pub const BULLET_SPEED: f32 = 150.0;
 pub const BULLET_RADIUS: f32 = 0.5;
 pub const BULLET_LIFETIME_SECS: f32 = 5.0;
 
+const HOMING_RADIUS: f32 = 15.0;
+const HOMING_STRENGTH: f32 = 4.0;
+
 #[derive(Resource, Default)]
 pub struct WeaponCharge(pub f32);
 
@@ -324,6 +327,7 @@ fn move_bullets(
     parent_query: Query<&ChildOf>,
     player_query: Query<(), With<PlayerCar>>,
     ai_query: Query<(), With<AiCar>>,
+    ai_transforms: Query<&GlobalTransform, With<AiCar>>,
     mut health_query: Query<&mut Health>,
     team_query: Query<&Team>,
     mut commands: Commands,
@@ -331,7 +335,26 @@ fn move_bullets(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (entity, mut transform, mut bullet, exclude_ray, bullet_owner) in bullet_query.iter_mut() {
-        
+        if bullet_owner.is_some() {
+            let bullet_pos = transform.translation;
+            let mut closest = HOMING_RADIUS;
+            let mut target_dir = Vec3::ZERO;
+            for ai_transform in ai_transforms.iter() {
+                let to_ai = ai_transform.translation() - bullet_pos;
+                let dist = to_ai.length();
+                if dist < closest {
+                    closest = dist;
+                    target_dir = to_ai / dist;
+                }
+            }
+            if closest < HOMING_RADIUS {
+                let strength = (1.0 - closest / HOMING_RADIUS) * HOMING_STRENGTH * time.delta_secs();
+                let current_dir = bullet.velocity.normalize();
+                let new_dir = current_dir.lerp(target_dir, strength).normalize();
+                bullet.velocity = new_dir * bullet.velocity.length();
+            }
+        }
+
     // Original code continues...
 
         bullet.lifetime.tick(time.delta());
