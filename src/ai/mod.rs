@@ -14,14 +14,6 @@ use rand::Rng;
 pub struct AiBlasterVisual;
 
 #[derive(Component)]
-struct AiComputePivot;
-
-#[derive(Component, Default)]
-struct AiPivotCache {
-    pivot: Option<Vec3>,
-}
-
-#[derive(Component)]
 struct AiConfig {
     car_index: usize,
     blaster_index: usize,
@@ -41,10 +33,7 @@ impl Plugin for AiPlugin {
         app.add_systems(OnExit(GameState::PreGame), cleanup_ai_cars)
             .add_systems(OnEnter(GameState::Playing), spawn_ai_cars)
             .add_systems(OnExit(GameState::Eliminated), cleanup_ai_cars)
-            .add_systems(Update, (
-                ai_compute_pivot,
-                ai_aim_blaster,
-            ).chain())
+            .add_systems(Update, ai_aim_blaster)
             .add_systems(Update, ai_drive.run_if(in_state(GameState::Playing).and(not_client)))
             .add_systems(Update, ai_shoot.run_if(in_state(GameState::Playing).and(not_client)))
             .add_systems(Update, despawn_dead_cars.run_if(in_state(GameState::Playing).and(not_client)))
@@ -61,7 +50,7 @@ fn spawn_ai_cars(
     max_hp: Res<MaxHealthPoints>,
 ) {
     let car_options: Vec<usize> = vec![3, 5, 7, 8, 9, 10, 0, 1];
-    let blaster_options: Vec<usize> = vec![1, 2, 3, 4, 5, 0];
+    let blaster_options: Vec<usize> = vec![1, 2, 3, 4, 0];
     let count = enemy_count.count;
     for i in 0..count {
         let car_index = car_options[i % car_options.len()];
@@ -125,8 +114,6 @@ fn spawn_ai_cars(
                     .with_scale(Vec3::splat(blaster_def.scale))
                     .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
                 AiBlasterVisual,
-                AiComputePivot,
-                AiPivotCache::default(),
             ));
         });
     }
@@ -141,54 +128,11 @@ fn cleanup_ai_cars(mut commands: Commands, q: Query<Entity, With<AiSpawnMarker>>
 #[derive(Component)]
 struct AiSpawnMarker;
 
-fn ai_compute_pivot(
-    mut commands: Commands,
-    ai_query: Query<(Entity, &GlobalTransform, &AiConfig), With<AiCar>>,
-    blaster_query: Query<(Entity, &GlobalTransform, &Transform), (With<AiBlasterVisual>, With<AiComputePivot>)>,
-    parent_query: Query<&ChildOf>,
-    children_query: Query<&Children>,
-    mesh_query: Query<&GlobalTransform, With<Mesh3d>>,
-    mut pivot_cache_query: Query<&mut AiPivotCache, With<AiBlasterVisual>>,
-) {
-    for (blaster_entity, _blaster_global, blaster_transform) in blaster_query.iter() {
-        let mut center_world = Vec3::ZERO;
-        let mut count = 0;
-
-        for desc in children_query.iter_descendants(blaster_entity) {
-            if let Ok(desc_global) = mesh_query.get(desc) {
-                center_world += desc_global.translation();
-                count += 1;
-            }
-        }
-
-        if count == 0 { continue; }
-        center_world /= count as f32;
-
-        let Ok(parent) = parent_query.get(blaster_entity) else { continue };
-        let parent_entity: Entity = parent.0;
-        let Ok((_, ai_global, ai_config)) = ai_query.get(parent_entity) else { continue };
-
-        let center_local = ai_global.affine().inverse().transform_point(center_world);
-
-        let def = &CAR_DEFS[ai_config.car_index];
-        let mount = Vec3::new(0.0, mount_y(def.collider.y), 0.0);
-        let rot = blaster_transform.rotation;
-        let s = blaster_transform.scale.x;
-
-        let pivot = rot.inverse() * (center_local - mount) / s;
-
-        if let Ok(mut pivot_cache) = pivot_cache_query.get_mut(blaster_entity) {
-            pivot_cache.pivot = Some(pivot);
-        }
-        commands.entity(blaster_entity).remove::<AiComputePivot>();
-    }
-}
-
 fn ai_aim_blaster(
     ai_query: Query<(Entity, &GlobalTransform, &AiConfig), With<AiCar>>,
     player_query: Query<&GlobalTransform, With<PlayerCar>>,
     children_query: Query<&Children>,
-    mut blaster_query: Query<(&AiPivotCache, &mut Transform), (With<AiBlasterVisual>, Without<AiCar>)>,
+    mut blaster_query: Query<&mut Transform, (With<AiBlasterVisual>, Without<AiCar>)>,
 ) {
     let Ok(player_global) = player_query.single() else { return };
     let target_pos = player_global.translation();
@@ -196,11 +140,13 @@ fn ai_aim_blaster(
     for (ai_entity, ai_global, ai_config) in ai_query.iter() {
         let Ok(children) = children_query.get(ai_entity) else { continue };
         for child in children {
-            if let Ok((pivot_cache, mut blaster_transform)) = blaster_query.get_mut(*child) {
+            if let Ok(mut blaster_transform) = blaster_query.get_mut(*child) {
                 let def = &CAR_DEFS[ai_config.car_index];
-                let mount = Vec3::new(0.0, mount_y(def.collider.y), 0.0);
+                let mount_y_val = mount_y(def.collider.y);
+                let mount = Vec3::new(0.0, mount_y_val, 0.0);
                 let s = blaster_transform.scale.x;
-                let pivot = pivot_cache.pivot.unwrap_or(Vec3::ZERO);
+                let centroid_y = def.collider.y + 0.2;
+                let pivot = Vec3::new(0.0, (centroid_y - mount_y_val) / s, 0.0);
 
                 let ai_pos = ai_global.translation();
                 let ai_rot = ai_global.rotation();

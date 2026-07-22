@@ -29,7 +29,6 @@ pub const BLASTER_DEFS: &[BlasterDef] = &[
     BlasterDef { name: "SMG",       path: "models/some smg.glb",                    scale: 3.5, blaster_type: BlasterType::Single,                 capacity: 3.0, reload_speed: 2.0, damage: 1 },
     BlasterDef { name: "Shotgun",   path: "models/dual barrel shotgun.glb",         scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.12 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
     BlasterDef { name: "Sniper",    path: "models/really big sniper rifle.glb",     scale: 3.5, blaster_type: BlasterType::Sniper,                 capacity: 1.0, reload_speed: 0.67, damage: 3 },
-    BlasterDef { name: "Quad",      path: "models/quadruple barel pistol, look sreally cool.glb", scale: 3.5, blaster_type: BlasterType::Shotgun { pellets: 3, spread: 0.2 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
     BlasterDef { name: "Rifle",     path: "models/maybe ar.glb",                    scale: 3.5, blaster_type: BlasterType::Burst { count: 3 }, capacity: 3.0, reload_speed: 2.0, damage: 1 },
 ];
 
@@ -56,9 +55,6 @@ impl BlasterSelection {
 pub struct BlasterVisual;
 
 #[derive(Component)]
-pub struct ComputePivot;
-
-#[derive(Component)]
 pub struct Bullet {
     pub velocity: Vec3,
     pub lifetime: Timer,
@@ -67,11 +63,6 @@ pub struct Bullet {
 
 #[derive(Component)]
 pub struct ExcludeMeshRayCast(pub HashSet<Entity>);
-
-#[derive(Resource, Default)]
-struct PivotCache {
-    pivot: Option<Vec3>,
-}
 
 #[derive(Resource, Default)]
 struct AimInfo {
@@ -97,61 +88,19 @@ pub struct BlasterPlugin;
 impl Plugin for BlasterPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BlasterSelection>()
-            .init_resource::<PivotCache>()
             .init_resource::<AimInfo>()
             .init_resource::<WeaponCharge>()
             .add_systems(Update, (
                 switch_blaster,
-                compute_pivot,
                 aim_blaster,
             ).chain().run_if(in_state(GameState::Playing).and(not_client)))
             .add_systems(Update, (player_shoot, move_bullets).chain().run_if(in_state(GameState::Playing).and(not_client)));
     }
 }
 
-fn compute_pivot(
-    mut commands: Commands,
-    mut pivot_cache: ResMut<PivotCache>,
-    car_query: Query<&GlobalTransform, With<PlayerCar>>,
-    blaster_query: Query<(Entity, &GlobalTransform, &Transform), (With<BlasterVisual>, With<ComputePivot>)>,
-    children_query: Query<&Children>,
-    mesh_query: Query<&GlobalTransform, With<Mesh3d>>,
-    car_selection: Res<CarSelection>,
-) {
-    for (entity, _blaster_global, blaster_transform) in blaster_query.iter() {
-        let mut center_world = Vec3::ZERO;
-        let mut count = 0;
-
-        for desc in children_query.iter_descendants(entity) {
-            if let Ok(desc_global) = mesh_query.get(desc) {
-                center_world += desc_global.translation();
-                count += 1;
-            }
-        }
-
-        if count == 0 { continue; }
-        center_world /= count as f32;
-
-        let Ok(car_global) = car_query.single() else { continue };
-        let center_car_local = car_global.affine().inverse().transform_point(center_world);
-
-        let car_def = &CAR_DEFS[car_selection.display_index()];
-        let mount = Vec3::new(0.0, mount_y(car_def.collider.y), 0.0);
-        let rot = blaster_transform.rotation;
-        let s = blaster_transform.scale.x;
-
-        let pivot = rot.inverse() * (center_car_local - mount) / s;
-
-        pivot_cache.pivot = Some(pivot);
-        commands.entity(entity).remove::<ComputePivot>();
-        return;
-    }
-}
-
 fn aim_blaster(
     car_query: Query<(Entity, &GlobalTransform), With<PlayerCar>>,
     car_selection: Res<CarSelection>,
-    pivot_cache: Res<PivotCache>,
     mut blaster_query: Query<&mut Transform, (With<BlasterVisual>, Without<PlayerCar>)>,
     camera_query: Query<(&Camera, &GlobalTransform), With<CarCamera>>,
     windows: Query<&Window>,
@@ -165,9 +114,11 @@ fn aim_blaster(
     let Ok(window) = windows.single() else { return };
 
     let car_def = &CAR_DEFS[car_selection.display_index()];
-    let mount = Vec3::new(0.0, mount_y(car_def.collider.y), 0.0);
+    let mount_y_val = mount_y(car_def.collider.y);
+    let mount = Vec3::new(0.0, mount_y_val, 0.0);
     let s = blaster.scale.x;
-    let pivot = pivot_cache.pivot.unwrap_or(Vec3::ZERO);
+    let centroid_y = car_def.collider.y + 0.2;
+    let pivot = Vec3::new(0.0, (centroid_y - mount_y_val) / s, 0.0);
 
     let Some(cursor) = window.cursor_position() else {
         let rotation = blaster.rotation;
@@ -460,7 +411,6 @@ fn switch_blaster(
     car_query: Query<Entity, With<PlayerCar>>,
     blaster_query: Query<Entity, With<BlasterVisual>>,
     children_query: Query<&Children>,
-    mut pivot_cache: ResMut<PivotCache>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
@@ -490,9 +440,6 @@ fn switch_blaster(
             SceneRoot(scene),
             Transform::from_translation(mount).with_scale(Vec3::splat(scale)),
             BlasterVisual,
-            ComputePivot,
         ));
     });
-
-    pivot_cache.pivot = None;
 }

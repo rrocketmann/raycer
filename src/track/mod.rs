@@ -115,7 +115,6 @@ fn spawn_world(
                 .with_scale(Vec3::splat(blaster_def.scale))
                 .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
             crate::blaster::BlasterVisual,
-            crate::blaster::ComputePivot,
         ));
     });
 

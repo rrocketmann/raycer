@@ -910,7 +910,6 @@ fn switch_car_model(
                 .with_scale(Vec3::splat(blaster_def.scale))
                 .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
             crate::blaster::BlasterVisual,
-            crate::blaster::ComputePivot,
         ));
     });
 }
@@ -960,7 +959,6 @@ fn switch_car_model_pregame(
                 .with_scale(Vec3::splat(blaster_def.scale))
                 .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
             crate::blaster::BlasterVisual,
-            crate::blaster::ComputePivot,
         ));
     });
 }
